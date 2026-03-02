@@ -24,7 +24,7 @@ button{cursor:pointer;}
 .mono{font-family:'DM Mono',monospace;}
 
 /* ── SHELL ── */
-.shell{display:grid;grid-template-columns:220px 1fr;height:100vh;}
+.shell{display:grid;grid-template-columns:220px 1fr;height:100vh;min-height:0;}
 @media(max-width:768px){
   .shell{
     display:flex;flex-direction:column;
@@ -84,7 +84,7 @@ button{cursor:pointer;}
 }
 
 /* ── MAIN ── */
-.main{display:flex;flex-direction:column;overflow:hidden;}
+.main{display:flex;flex-direction:column;overflow:hidden;min-height:0;}
 @media(max-width:768px){
   .main{
     flex:1;
@@ -97,7 +97,7 @@ button{cursor:pointer;}
 .page-title{font-size:17px;font-weight:700;}
 .page-sub{font-size:11px;color:var(--mist);margin-top:1px;}
 .topbar-right{display:flex;gap:8px;align-items:center;}
-.content{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px;}
+.content{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px;min-height:0;}
 @media(max-width:768px){
   .content{
     overflow:visible;
