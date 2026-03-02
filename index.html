@@ -505,7 +505,7 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
 
 // ── Daily Input ───────────────────────────────────────────────────────────
 function DailyInput({data,user,token,isMgr,reload,showToast}){
-  const empOpts=isMgr?data.employees.filter(e=>e.type==='従業員'):[{id:user.empId,name:user.name}];
+  const empOpts=isMgr?data.employees:[{id:user.empId,name:user.name}];
   const [form,setForm]=useState({date:today(),empId:user.empId,siteId:data.sites[0]?.id||'',start:'08:00',end:'17:00',rest:60,allowances:[],memo:''});
   const [saving,setSaving]=useState(false);
   useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
@@ -609,20 +609,23 @@ function SitesPage({data}){
               <div><span className="site-name">{s.name}</span><span className="site-id">{s.id}</span></div>
               <span className="profit-rate" style={{color:s.profit_rate>=0.2?'var(--green)':'var(--accent)'}}>{fmtP(s.profit_rate)}</span>
             </div>
-            <div className="site-nums">
+            <div className="site-nums" style={{gridTemplateColumns:'repeat(3,1fr)'}}>
               <div><div className="site-num-label">売上</div><div className="site-num-val">{fmt(s.contract)}</div></div>
-              <div><div className="site-num-label">労務</div><div className="site-num-val" style={{color:'var(--blue)'}}>{fmt(s.labor_cost)}</div></div>
-              <div><div className="site-num-label">外注</div><div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.subcon_cost)}</div></div>
+              <div><div className="site-num-label">労務費</div><div className="site-num-val" style={{color:'var(--blue)'}}>{fmt(s.labor_cost)}</div></div>
+              <div><div className="site-num-label">外注費</div><div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.subcon_cost)}</div></div>
               <div><div className="site-num-label">経費</div><div className="site-num-val" style={{color:'#f97316'}}>{fmt(s.expense_cost)}</div></div>
+              <div><div className="site-num-label">総人工数</div><div className="site-num-val" style={{color:'var(--mist)'}}>{s.mandays||0}人工</div></div>
+              <div><div className="site-num-label">1人工あたり売上</div><div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(s.revenue_per_manday)}</div></div>
             </div>
-            <div className="stacked">
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8,padding:'6px 0',borderTop:'1px solid rgba(255,255,255,0.06)'}}>
+              <span style={{fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--mist)'}}>1人工原価: <span style={{color:'var(--accent)',fontWeight:700}}>{fmt(s.cost_per_manday)}</span></span>
+              <span style={{fontFamily:'DM Mono,monospace',fontSize:12}}>粗利: <span style={{color:s.profit>=0?'var(--green)':'var(--red)',fontWeight:700}}>{fmt(s.profit)}</span></span>
+            </div>
+            <div className="stacked" style={{marginTop:6}}>
               <div style={{width:lp*100+'%',background:'var(--blue)'}}></div>
               <div style={{width:sp*100+'%',background:'var(--purple)'}}></div>
               <div style={{width:ep*100+'%',background:'#f97316'}}></div>
               <div style={{width:pp*100+'%',background:'var(--green)'}}></div>
-            </div>
-            <div style={{display:'flex',justifyContent:'flex-end',marginTop:5}}>
-              <span style={{fontFamily:'DM Mono,monospace',fontSize:12}}>粗利: <span style={{color:s.profit>=0?'var(--green)':'var(--red)',fontWeight:700}}>{fmt(s.profit)}</span></span>
             </div>
           </div>;
         })}</div>
@@ -739,10 +742,10 @@ function SubconPage({data,token,reload,showToast}){
   useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const submit=async()=>{
-    if(!form.vendor||!form.price||!form.work){showToast('必須項目を入力してください','error');return;}
+    if(!form.vendor||!form.price){showToast('外注先と金額を入力してください','error');return;}
     setSaving(true);const res=await api.post('/subcons',{...form,qty:+form.qty,price:+form.price},token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
-    showToast('外注情報を保存しました ✓');reload();setForm(f=>({...f,vendor:'',work:'',qty:1,price:''}));
+    showToast('外注情報を保存しました ✓');reload();setForm(f=>({...f,vendor:'',qty:1,price:''}));
   };
   const del=async(id)=>{await api.del(`/subcons/${id}`,token);showToast('削除しました');reload();};
   const toggle=async(id,st)=>{await api.put(`/subcons/${id}`,{status:st==='未払'?'支払済':'未払'},token);reload();};
@@ -761,7 +764,7 @@ function SubconPage({data,token,reload,showToast}){
                 {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
               </select>
             </div>
-            <div className="form-group"><label className="form-label">作業内容</label><input type="text" className="form-input" placeholder="型枠工事" value={form.work} onChange={e=>set('work',e.target.value)}/></div>
+
             <div className="form-group"><label className="form-label">数量</label><input type="number" className="form-input" value={form.qty} onChange={e=>set('qty',e.target.value)} min="1"/></div>
             <div className="form-group"><label className="form-label">単位</label>
               <select className="form-input" value={form.unit} onChange={e=>set('unit',e.target.value)}>
@@ -789,7 +792,7 @@ function SubconPage({data,token,reload,showToast}){
               <tr key={s.id}>
                 <td className="mono">{s.date}</td><td style={{fontWeight:500}}>{s.vendor}</td>
                 <td><span className="badge badge-orange">{s.site_id}</span></td>
-                <td style={{color:'var(--mist)'}}>{s.work}</td><td className="mono">{s.qty}{s.unit}</td>
+                <td className="mono">{s.qty}{s.unit}</td>
                 <td className="mono">{fmt(s.qty*s.price)}</td>
                 <td><button className={`badge ${s.status==='支払済'?'badge-green':'badge-red'}`} style={{border:'none',cursor:'pointer'}} onClick={()=>toggle(s.id,s.status)}>{s.status}</button></td>
                 <td><button className="btn btn-danger btn-sm" onClick={()=>del(s.id)}>削除</button></td>
