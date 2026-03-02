@@ -24,12 +24,9 @@ button{cursor:pointer;}
 .mono{font-family:'DM Mono',monospace;}
 
 /* ── SHELL ── */
-.shell{display:grid;grid-template-columns:220px 1fr;height:100vh;min-height:0;}
+.shell{display:grid;grid-template-columns:220px 1fr;height:100vh;}
 @media(max-width:768px){
-  .shell{
-    display:flex;flex-direction:column;
-    height:100%;min-height:100dvh;
-  }
+  .shell{display:flex;flex-direction:column;min-height:100dvh;height:auto;}
 }
 
 /* ── SIDEBAR（PC） ── */
@@ -84,29 +81,19 @@ button{cursor:pointer;}
 }
 
 /* ── MAIN ── */
-.main{display:flex;flex-direction:column;overflow:hidden;min-height:0;}
-@media(max-width:768px){
-  .main{
-    flex:1;
-    overflow:visible;
-    padding-bottom:calc(64px + env(safe-area-inset-bottom));
-  }
-}
-.topbar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
-@media(max-width:768px){.topbar{padding:12px 16px;}}
+/* PC: mainをoverflow-y:autoにしてスクロールさせる */
+.main{display:flex;flex-direction:column;overflow-y:auto;}
+.topbar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:10;background:var(--ink);}
 .page-title{font-size:17px;font-weight:700;}
 .page-sub{font-size:11px;color:var(--mist);margin-top:1px;}
 .topbar-right{display:flex;gap:8px;align-items:center;}
-.content{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px;min-height:0;}
+.content{padding:20px 24px;display:flex;flex-direction:column;gap:16px;}
+/* スマホ */
 @media(max-width:768px){
-  .content{
-    overflow:visible;
-    padding:12px 14px 20px;
-    gap:12px;
-  }
+  .main{overflow-y:auto;flex:1;padding-bottom:calc(64px + env(safe-area-inset-bottom));}
+  .topbar{padding:12px 16px;}
+  .content{padding:12px 14px 20px;gap:12px;}
 }
-.content::-webkit-scrollbar{width:4px;}
-.content::-webkit-scrollbar-thumb{background:var(--iron);border-radius:2px;}
 
 /* ── CARDS ── */
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
