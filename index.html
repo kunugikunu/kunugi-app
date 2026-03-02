@@ -17,33 +17,29 @@
   --card:#161c2d;--border:rgba(255,255,255,0.07);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;font-family:'Noto Sans JP',sans-serif;background:var(--ink);color:var(--white);}
+html{height:100%;}
+body{min-height:100%;font-family:'Noto Sans JP',sans-serif;background:var(--ink);color:var(--white);-webkit-text-size-adjust:100%;}
 input,select,textarea,button{font-family:'Noto Sans JP',sans-serif;}
 button{cursor:pointer;}
 .mono{font-family:'DM Mono',monospace;}
 
 /* ── SHELL ── */
 .shell{display:grid;grid-template-columns:220px 1fr;height:100vh;}
-@media(max-width:768px){.shell{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:100dvh;}}
-
-/* ── SIDEBAR ── */
-.sidebar{background:var(--steel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
 @media(max-width:768px){
-  .sidebar{flex-direction:row;border-right:none;border-bottom:1px solid var(--border);overflow-x:auto;overflow-y:hidden;padding:0 8px;}
-  .sidebar-logo,.nav-section,.sidebar-footer,.mode-switch{display:none;}
+  .shell{
+    display:flex;flex-direction:column;
+    height:100%;min-height:100dvh;
+  }
 }
+
+/* ── SIDEBAR（PC） ── */
+.sidebar{background:var(--steel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
 .sidebar-logo{padding:20px 20px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .logo-mark{font-size:20px;font-weight:900;letter-spacing:-0.5px;}
 .logo-mark span{color:var(--accent);}
 .logo-sub{font-size:9px;color:var(--mist);letter-spacing:2px;margin-top:2px;font-family:'DM Mono',monospace;}
 .nav-section{padding:16px 16px 4px;font-size:9px;letter-spacing:2px;color:var(--slate);font-family:'DM Mono',monospace;}
-.nav-item{display:flex;align-items:center;gap:9px;padding:9px 14px;border-radius:8px;margin:1px 8px;font-size:13px;font-weight:500;color:var(--mist);cursor:pointer;border:none;background:none;width:calc(100%-16px);text-align:left;transition:all .15s;position:relative;}
-@media(max-width:768px){
-  .nav-item{flex-direction:column;gap:2px;padding:8px 10px;margin:0;border-radius:0;font-size:10px;white-space:nowrap;min-width:64px;border-bottom:2px solid transparent;width:auto;}
-  .nav-item.active{background:none;border-bottom-color:var(--accent);}
-  .nav-item.active::before{display:none;}
-  .nav-icon{font-size:18px;}
-}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 14px;border-radius:8px;margin:1px 8px;font-size:13px;font-weight:500;color:var(--mist);cursor:pointer;border:none;background:none;width:calc(100% - 16px);text-align:left;transition:all .15s;position:relative;}
 .nav-item:hover{background:rgba(255,255,255,0.05);color:var(--white);}
 .nav-item.active{background:rgba(246,166,35,0.12);color:var(--accent);}
 .nav-item.active::before{content:'';position:absolute;left:8px;top:20%;bottom:20%;width:3px;background:var(--accent);border-radius:0 2px 2px 0;}
@@ -55,15 +51,61 @@ button{cursor:pointer;}
 .user-name{font-size:12px;font-weight:600;}
 .user-role{font-size:10px;color:var(--mist);}
 
+/* ── ボトムナビ（スマホ専用） ── */
+.bottom-nav{display:none;}
+@media(max-width:768px){
+  .sidebar{display:none;}
+  .bottom-nav{
+    display:flex;
+    position:fixed;bottom:0;left:0;right:0;
+    background:var(--steel);
+    border-top:1px solid var(--border);
+    z-index:100;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .bottom-nav .nav-item{
+    flex:1;flex-direction:column;gap:2px;
+    padding:8px 4px;margin:0;border-radius:0;
+    font-size:9px;white-space:nowrap;
+    width:auto;
+    border-top:2px solid transparent;
+  }
+  .bottom-nav .nav-item.active{background:rgba(246,166,35,0.1);border-top-color:var(--accent);}
+  .bottom-nav .nav-item.active::before{display:none;}
+  .bottom-nav .nav-icon{font-size:20px;width:auto;}
+  /* スマホ用ヘッダー */
+  .mobile-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
+    background:var(--steel);border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .mobile-header .logo-mark{font-size:16px;}
+}
+.mobile-header{display:none;}
+
 /* ── MAIN ── */
 .main{display:flex;flex-direction:column;overflow:hidden;}
+@media(max-width:768px){
+  .main{
+    flex:1;
+    overflow:visible;
+    padding-bottom:calc(64px + env(safe-area-inset-bottom));
+  }
+}
 .topbar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 @media(max-width:768px){.topbar{padding:12px 16px;}}
 .page-title{font-size:17px;font-weight:700;}
 .page-sub{font-size:11px;color:var(--mist);margin-top:1px;}
 .topbar-right{display:flex;gap:8px;align-items:center;}
 .content{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px;}
-@media(max-width:768px){.content{padding:12px 14px;gap:12px;}}
+@media(max-width:768px){
+  .content{
+    overflow:visible;
+    padding:12px 14px 20px;
+    gap:12px;
+  }
+}
 .content::-webkit-scrollbar{width:4px;}
 .content::-webkit-scrollbar-thumb{background:var(--iron);border-radius:2px;}
 
@@ -324,6 +366,7 @@ function App(){
 
   return (
     <div className="shell">
+      {/* PC サイドバー */}
       <div className="sidebar">
         <div className="sidebar-logo">
           <div className="logo-mark">㓛刀<span style={{color:'var(--accent)'}}>工業</span></div>
@@ -348,8 +391,18 @@ function App(){
         </div>
       </div>
 
+      {/* スマホ ヘッダー */}
+      <div className="mobile-header">
+        <div className="logo-mark">㓛刀<span style={{color:'var(--accent)'}}>工業</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <div className={`avatar ${isMgr?'av-mgr':'av-emp'}`} style={{width:26,height:26,fontSize:11}}>{user.name?.[0]||'？'}</div>
+          <span style={{fontSize:12,color:'var(--mist)'}}>{user.name}</span>
+          <button className="btn btn-ghost btn-sm" onClick={logout} style={{padding:'4px 8px',fontSize:11}}>ログアウト</button>
+        </div>
+      </div>
+
       <div className="main">
-        {loading && <div style={{height:2,background:'var(--accent)',animation:'none'}}></div>}
+        {loading && <div style={{height:2,background:'var(--accent)',flexShrink:0}}></div>}
         {page==='dashboard'&&<Dashboard data={data} totalSales={totalSales} totalProfit={totalProfit} totalLabor={totalLabor} isMgr={isMgr} setPage={setPage}/>}
         {page==='daily'    &&<DailyInput data={data} user={user} token={token} isMgr={isMgr} reload={reload} showToast={showToast}/>}
         {page==='sites'    &&<SitesPage data={data}/>}
@@ -358,6 +411,17 @@ function App(){
         {page==='subcon'   &&<SubconPage data={data} token={token} reload={reload} showToast={showToast}/>}
         {page==='master'   &&<MasterPage data={data} token={token} reload={reload} showToast={showToast} user={user}/>}
       </div>
+
+      {/* スマホ ボトムナビ */}
+      <div className="bottom-nav">
+        {navItems.map(n=>(
+          <button key={n.key} className={`nav-item${page===n.key?' active':''}`} onClick={()=>setPage(n.key)}>
+            <span className="nav-icon">{n.icon}</span>
+            <span>{n.label}</span>
+          </button>
+        ))}
+      </div>
+
       {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
     </div>
   );
