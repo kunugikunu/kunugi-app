@@ -11,7 +11,8 @@ from urllib.parse import urlparse
 from datetime import datetime
 
 PORT    = int(os.environ.get("PORT", 8000))
-DB_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "/app") + "/kukito.db"
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kukito.db")
+
 SESSIONS  = {}
 SESSION_TTL = 60 * 60 * 24 * 7  # 7日間
 
@@ -197,16 +198,20 @@ class Handler(BaseHTTPRequestHandler):
                 for st in sites:
                     sid=st["id"]
                     logs=con.execute("SELECT dl.start_time,dl.end_time,dl.rest_min,e.hourly FROM daily_logs dl JOIN employees e ON dl.emp_id=e.id WHERE dl.site_id=?",(sid,)).fetchall()
-                    labor=0
+                    labor=0; mandays=len(logs)
                     for l in logs:
                         sh,sm=map(int,l["start_time"].split(":")); eh,em=map(int,l["end_time"].split(":"))
                         ac=max(0,(eh*60+em-sh*60-sm-l["rest_min"])/60); ot=max(0,ac-8)
-                        labor+=round(min(ac,8)*l["hourly"]+ot*l["hourly"]*1.25)
+                        if l["hourly"]>0:
+                            labor+=round(min(ac,8)*l["hourly"]+ot*l["hourly"]*1.25)
                     sc=con.execute("SELECT COALESCE(SUM(qty*price),0) t FROM subcons WHERE site_id=?",(sid,)).fetchone()["t"]
                     ex=con.execute("SELECT COALESCE(SUM(amount),0) t FROM expenses WHERE site_id=?",(sid,)).fetchone()["t"]
                     tc=labor+sc+ex; pr=st["contract"]-tc
+                    cost_per_manday=round(tc/mandays) if mandays>0 else 0
+                    revenue_per_manday=round(st["contract"]/mandays) if mandays>0 else 0
                     st.update({"labor_cost":labor,"subcon_cost":sc,"expense_cost":ex,"total_cost":tc,"profit":pr,
-                               "profit_rate":round(pr/st["contract"],4) if st["contract"]>0 else 0})
+                               "profit_rate":round(pr/st["contract"],4) if st["contract"]>0 else 0,
+                               "mandays":mandays,"cost_per_manday":cost_per_manday,"revenue_per_manday":revenue_per_manday})
                 self.send_json(sites)
 
             elif path=="/api/salary":
@@ -281,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path=="/api/subcons":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 cur=con.execute("INSERT INTO subcons (date,vendor,site_id,work,qty,unit,price,status) VALUES (?,?,?,?,?,?,?,?)",
-                    (b["date"],b["vendor"],b["siteId"],b["work"],float(b.get("qty",1)),b.get("unit","人工"),int(b.get("price",0)),b.get("status","未払")))
+                    (b["date"],b["vendor"],b["siteId"],b.get("work",""),float(b.get("qty",1)),b.get("unit","人工"),int(b.get("price",0)),b.get("status","未払")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM subcons WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
