@@ -51,8 +51,9 @@ button{cursor:pointer;}
 .user-name{font-size:12px;font-weight:600;}
 .user-role{font-size:10px;color:var(--mist);}
 
-/* ── ボトムナビ（スマホ専用） ── */
+/* ── ボトムナビ・モバイルヘッダー（デフォルト非表示） ── */
 .bottom-nav{display:none;}
+.mobile-header{display:none;}
 @media(max-width:768px){
   .sidebar{display:none;}
   .bottom-nav{
@@ -73,7 +74,6 @@ button{cursor:pointer;}
   .bottom-nav .nav-item.active{background:rgba(246,166,35,0.1);border-top-color:var(--accent);}
   .bottom-nav .nav-item.active::before{display:none;}
   .bottom-nav .nav-icon{font-size:20px;width:auto;}
-  /* スマホ用ヘッダー */
   .mobile-header{
     display:flex;align-items:center;justify-content:space-between;
     padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
@@ -82,7 +82,6 @@ button{cursor:pointer;}
   }
   .mobile-header .logo-mark{font-size:16px;}
 }
-.mobile-header{display:none;}
 
 /* ── MAIN ── */
 .main{display:flex;flex-direction:column;overflow:hidden;}
