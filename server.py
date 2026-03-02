@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
-"""
-㓛刀工業 作業管理システム - バックエンドサーバー（ログイン機能付き）
-Python標準ライブラリのみ（追加インストール不要）
-起動: python3 server.py
-"""
+"""㓛刀工業 作業管理システム"""
 
 import sqlite3, json, os, hashlib, secrets, time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
 PORT    = int(os.environ.get("PORT", 8000))
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kukito.db")
+DB_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", os.path.dirname(os.path.abspath(__file__))) + "/kukito.db"
 
-SESSIONS  = {}
-SESSION_TTL = 60 * 60 * 24 * 7  # 7日間
+SESSIONS    = {}
+SESSION_TTL = 60 * 60 * 24 * 7
 
-def hash_pw(pw):   return hashlib.sha256(pw.encode()).hexdigest()
-def new_token():   return secrets.token_hex(32)
+def hash_pw(pw):  return hashlib.sha256(pw.encode()).hexdigest()
+def new_token():  return secrets.token_hex(32)
 
 def get_session(token):
     if not token: return None
     s = SESSIONS.get(token)
     if not s: return None
-    if time.time() > s["expires"]:
-        del SESSIONS[token]; return None
+    if time.time() > s["expires"]: del SESSIONS[token]; return None
     return s
 
-# ── DB ───────────────────────────────────────────────────────────────────
+# ── DB ───────────────────────────────────────────────────────────────────────
 def init_db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -41,20 +36,19 @@ def init_db():
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS sites (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, client TEXT,
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, client TEXT DEFAULT '',
         site_type TEXT DEFAULT '請負',
-        contract INTEGER DEFAULT 0, budget INTEGER DEFAULT 0,
+        contract INTEGER DEFAULT 0,
         manday_price INTEGER DEFAULT 0,
-        extra_amount INTEGER DEFAULT 0,
+        start_date TEXT DEFAULT '',
+        end_date TEXT DEFAULT '',
         status TEXT DEFAULT '準備中',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS extra_works (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        site_id TEXT NOT NULL,
-        date TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        amount INTEGER NOT NULL DEFAULT 0,
+        site_id TEXT NOT NULL, date TEXT NOT NULL,
+        description TEXT DEFAULT '', amount INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (site_id) REFERENCES sites(id)
     );
@@ -65,58 +59,50 @@ def init_db():
         rest_min INTEGER DEFAULT 60, allowances TEXT DEFAULT '[]', memo TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
-    CREATE TABLE IF NOT EXISTS expenses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL, site_id TEXT NOT NULL, category TEXT NOT NULL,
-        amount INTEGER DEFAULT 0, payment TEXT DEFAULT '現金', memo TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now','localtime'))
-    );
     CREATE TABLE IF NOT EXISTS subcons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL, vendor TEXT NOT NULL, site_id TEXT NOT NULL,
-        work TEXT NOT NULL, qty REAL DEFAULT 1, unit TEXT DEFAULT '人工',
+        qty REAL DEFAULT 1, unit TEXT DEFAULT '人工',
         price INTEGER DEFAULT 0, status TEXT DEFAULT '未払',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     """)
-    # マイグレーション（既存DBにpassword/roleカラムがない場合）
-    cols = [r[1] for r in cur.execute("PRAGMA table_info(employees)")]
-    if "password" not in cols: cur.execute("ALTER TABLE employees ADD COLUMN password TEXT DEFAULT ''")
-    if "role" not in cols:     cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
 
-    # マイグレーション（既存sitesテーブルへのカラム追加）
+    # ── マイグレーション ──
+    emp_cols  = [r[1] for r in cur.execute("PRAGMA table_info(employees)")]
     site_cols = [r[1] for r in cur.execute("PRAGMA table_info(sites)")]
+    sub_cols  = [r[1] for r in cur.execute("PRAGMA table_info(subcons)")]
+
+    if "password"     not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN password TEXT DEFAULT ''")
+    if "role"         not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
     if "site_type"    not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
     if "manday_price" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
-    if "extra_amount" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN extra_amount INTEGER DEFAULT 0")
+    if "start_date"   not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN start_date TEXT DEFAULT ''")
+    if "end_date"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN end_date TEXT DEFAULT ''")
+    # subcons の work カラムが残っている旧DBはそのまま使える（SELECT時は無視）
 
+    # ── サンプルデータ ──
     if cur.execute("SELECT COUNT(*) FROM employees").fetchone()[0] == 0:
-        cur.executemany(
-            "INSERT INTO employees (id,name,type,hourly,allowance,password,role) VALUES (?,?,?,?,?,?,?)", [
-            ("MGR",  "㓛刀 代表",  "従業員", 0,    0,    hash_pw("admin1234"), "manager"),
-            ("E001", "田中 太郎",  "従業員", 1800, 3000, hash_pw("tanaka123"), "employee"),
-            ("E002", "山田 花子",  "従業員", 1600, 3000, hash_pw("yamada123"), "employee"),
+        cur.executemany("INSERT INTO employees (id,name,type,hourly,allowance,password,role) VALUES (?,?,?,?,?,?,?)", [
+            ("MGR",  "㓛刀 代表",  "従業員", 0,    0, hash_pw("admin1234"), "manager"),
+            ("E001", "田中 太郎",  "従業員", 1800, 0, hash_pw("tanaka123"), "employee"),
+            ("E002", "山田 花子",  "従業員", 1600, 0, hash_pw("yamada123"), "employee"),
         ])
-        cur.executemany("INSERT INTO sites (id,name,client,contract,budget,site_type,manday_price,extra_amount,status) VALUES (?,?,?,?,?,?,?,?,?)", [
-            ("S001","〇〇ビル新築工事","〇〇建設",  5000000,3500000,"請負",0,0,"進行中"),
-            ("S002","△△マンション改修","△△不動産", 3000000,2000000,"請負",0,0,"進行中"),
-            ("S003","□□倉庫電気工事","□□物流",   0,0,"応援",25000,0,"進行中"),
-            ("S004","◇◇住宅リフォーム","直接受注",  1200000, 900000,"請負",0,0,"準備中"),
+        cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?)", [
+            ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    "2025-01-10","2025-06-30","進行中"),
+            ("S002","△△マンション改修","△△不動産", "請負",3000000,0,    "2025-02-01","2025-05-31","進行中"),
+            ("S003","□□応援工事",      "□□建設",   "応援",0,      25000,"2025-03-01","",          "進行中"),
+            ("S004","◇◇住宅リフォーム","直接受注",  "請負",1200000,0,    "2025-04-01","",          "準備中"),
         ])
         td = datetime.now().strftime("%Y-%m-%d")
         cur.executemany("INSERT INTO daily_logs (date,emp_id,site_id,start_time,end_time,rest_min,allowances,memo) VALUES (?,?,?,?,?,?,?,?)", [
             (td,"E001","S001","08:00","17:00",60,"[]",""),
             (td,"E002","S001","08:00","16:00",60,"[]",""),
+            (td,"MGR", "S001","08:00","17:00",60,"[]",""),
         ])
-        cur.executemany("INSERT INTO expenses (date,site_id,category,amount,payment,memo) VALUES (?,?,?,?,?,?)", [
-            (td,"S001","ガソリン",8500,"クレカ",""),
-            (td,"S001","高速代",2300,"ETC",""),
-            (td,"S002","材料費",45000,"振込",""),
-        ])
-        cur.executemany("INSERT INTO subcons (date,vendor,site_id,work,qty,unit,price,status) VALUES (?,?,?,?,?,?,?,?)", [
-            (td,"A社","S001","型枠工事",3,"人工",25000,"未払"),
-            (td,"B社","S002","左官工事",2,"人工",22000,"未払"),
-            (td,"C社","S003","設備工事",1,"一式",150000,"未払"),
+        cur.executemany("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)", [
+            (td,"A社","S001",3,"人工",25000,"未払"),
+            (td,"B社","S002",2,"人工",22000,"未払"),
         ])
     con.commit(); con.close()
     print(f"✅ DB初期化完了: {DB_PATH}")
@@ -129,7 +115,17 @@ def get_db():
 def rows(r): return [dict(x) for x in r]
 def row(r):  return dict(r) if r else None
 
-# ── Handler ───────────────────────────────────────────────────────────────
+def calc_labor(logs):
+    """日報リストから労務費と人工数（代表含む）を返す"""
+    labor = 0; mandays = len(logs)
+    for l in logs:
+        sh,sm = map(int,l["start_time"].split(":")); eh,em = map(int,l["end_time"].split(":"))
+        ac = max(0,(eh*60+em-sh*60-sm-l["rest_min"])/60); ot = max(0,ac-8)
+        if l["hourly"] > 0:
+            labor += round(min(ac,8)*l["hourly"] + ot*l["hourly"]*1.25)
+    return labor, mandays
+
+# ── Handler ──────────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {fmt%args}")
@@ -138,30 +134,28 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type","application/json; charset=utf-8")
-        self.send_header("Content-Length", len(body))
+        self.send_header("Content-Length",len(body))
         self.send_header("Access-Control-Allow-Origin","*")
         self.send_header("Access-Control-Allow-Methods","GET,POST,PUT,DELETE,OPTIONS")
         self.send_header("Access-Control-Allow-Headers","Content-Type,Authorization")
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
     def send_file(self, path):
         with open(path,"rb") as f: data=f.read()
         self.send_response(200)
         self.send_header("Content-Type","text/html; charset=utf-8")
         self.send_header("Content-Length",len(data))
-        self.end_headers()
-        self.wfile.write(data)
+        self.end_headers(); self.wfile.write(data)
 
     def body(self):
-        n = int(self.headers.get("Content-Length",0))
+        n=int(self.headers.get("Content-Length",0))
         return json.loads(self.rfile.read(n)) if n else {}
 
     def token(self):
         return self.headers.get("Authorization","").replace("Bearer ","").strip() or None
 
     def auth(self, mgr=False):
-        s = get_session(self.token())
+        s=get_session(self.token())
         if not s:           self.send_json({"error":"ログインが必要です"},401); return None
         if mgr and s["role"]!="manager": self.send_json({"error":"代表権限が必要です"},403); return None
         return s
@@ -174,7 +168,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        path = urlparse(self.path).path.rstrip("/")
+        parsed = urlparse(self.path)
+        path   = parsed.path.rstrip("/")
+        qs     = parse_qs(parsed.query)
+
         if path in ("","/"): self.send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),"index.html")); return
 
         con = get_db()
@@ -197,54 +194,69 @@ class Handler(BaseHTTPRequestHandler):
                 s=self.auth()
                 if not s: return
                 if s["role"]=="manager":
-                    r=con.execute("SELECT dl.*,e.name emp_name,e.hourly,s.name site_name FROM daily_logs dl LEFT JOIN employees e ON dl.emp_id=e.id LEFT JOIN sites s ON dl.site_id=s.id ORDER BY dl.date DESC,dl.id DESC").fetchall()
+                    r=con.execute("SELECT dl.*,e.name emp_name,e.hourly,st.name site_name FROM daily_logs dl LEFT JOIN employees e ON dl.emp_id=e.id LEFT JOIN sites st ON dl.site_id=st.id ORDER BY dl.date DESC,dl.id DESC").fetchall()
                 else:
-                    r=con.execute("SELECT dl.*,e.name emp_name,e.hourly,s.name site_name FROM daily_logs dl LEFT JOIN employees e ON dl.emp_id=e.id LEFT JOIN sites s ON dl.site_id=s.id WHERE dl.emp_id=? ORDER BY dl.date DESC,dl.id DESC",(s["emp_id"],)).fetchall()
+                    r=con.execute("SELECT dl.*,e.name emp_name,e.hourly,st.name site_name FROM daily_logs dl LEFT JOIN employees e ON dl.emp_id=e.id LEFT JOIN sites st ON dl.site_id=st.id WHERE dl.emp_id=? ORDER BY dl.date DESC,dl.id DESC",(s["emp_id"],)).fetchall()
                 self.send_json(rows(r))
-
-            elif path=="/api/expenses":
-                if not self.auth(mgr=True): return
-                self.send_json(rows(con.execute("SELECT ex.*,s.name site_name FROM expenses ex LEFT JOIN sites s ON ex.site_id=s.id ORDER BY ex.date DESC,ex.id DESC").fetchall()))
 
             elif path=="/api/subcons":
                 if not self.auth(mgr=True): return
-                self.send_json(rows(con.execute("SELECT sc.*,s.name site_name FROM subcons sc LEFT JOIN sites s ON sc.site_id=s.id ORDER BY sc.date DESC,sc.id DESC").fetchall()))
+                self.send_json(rows(con.execute("SELECT sc.*,st.name site_name FROM subcons sc LEFT JOIN sites st ON sc.site_id=st.id ORDER BY sc.date DESC,sc.id DESC").fetchall()))
+
+            elif path=="/api/extra_works":
+                if not self.auth(mgr=True): return
+                sid=qs.get("site_id",[""])[0]
+                if sid:
+                    r=con.execute("SELECT * FROM extra_works WHERE site_id=? ORDER BY date DESC",(sid,)).fetchall()
+                else:
+                    r=con.execute("SELECT ew.*,st.name site_name FROM extra_works ew LEFT JOIN sites st ON ew.site_id=st.id ORDER BY ew.date DESC").fetchall()
+                self.send_json(rows(r))
 
             elif path=="/api/summary":
                 if not self.auth(mgr=True): return
                 sites = rows(con.execute("SELECT * FROM sites ORDER BY id").fetchall())
                 for st in sites:
-                    sid=st["id"]
-                    logs=con.execute("SELECT dl.start_time,dl.end_time,dl.rest_min,e.hourly FROM daily_logs dl JOIN employees e ON dl.emp_id=e.id WHERE dl.site_id=?",(sid,)).fetchall()
-                    labor=0; mandays=len(logs)
-                    for l in logs:
-                        sh,sm=map(int,l["start_time"].split(":")); eh,em=map(int,l["end_time"].split(":"))
-                        ac=max(0,(eh*60+em-sh*60-sm-l["rest_min"])/60); ot=max(0,ac-8)
-                        if l["hourly"]>0:
-                            labor+=round(min(ac,8)*l["hourly"]+ot*l["hourly"]*1.25)
-                    # 売上計算：応援は人工×単価、請負は契約金額＋追加工事
-                    if st.get("site_type")=="応援":
-                        revenue = mandays * st.get("manday_price",0)
+                    sid = st["id"]
+                    # 従業員・代表の日報
+                    logs = con.execute("SELECT dl.start_time,dl.end_time,dl.rest_min,e.hourly FROM daily_logs dl JOIN employees e ON dl.emp_id=e.id WHERE dl.site_id=?",(sid,)).fetchall()
+                    labor, emp_mandays = calc_labor(logs)
+
+                    # 外注（人工数として加算）
+                    subcon_rows = con.execute("SELECT qty,qty*price total FROM subcons WHERE site_id=?",(sid,)).fetchall()
+                    subcon_cost  = sum(r["total"] for r in subcon_rows)
+                    subcon_mandays = sum(r["qty"] for r in subcon_rows)
+
+                    # 総人工 = 従業員日報件数 + 外注人工数
+                    total_mandays = emp_mandays + subcon_mandays
+
+                    if st.get("site_type") == "応援":
+                        # 応援：売上 = 人工×単価、外注費は引かない
+                        revenue = total_mandays * st.get("manday_price", 0)
+                        total_cost = labor
                     else:
+                        # 請負：売上 = 契約 + 追加工事
                         extra = con.execute("SELECT COALESCE(SUM(amount),0) t FROM extra_works WHERE site_id=?",(sid,)).fetchone()["t"]
                         revenue = st["contract"] + extra
                         st["extra_amount"] = extra
-                    profit = revenue - labor
-                    cost_per_manday = round(labor/mandays) if mandays>0 else 0
-                    revenue_per_manday = round(revenue/mandays) if mandays>0 else 0
-                    st.update({"revenue":revenue,"labor_cost":labor,"total_cost":labor,"profit":profit,
-                               "profit_rate":round(profit/revenue,4) if revenue>0 else 0,
-                               "mandays":mandays,"cost_per_manday":cost_per_manday,"revenue_per_manday":revenue_per_manday})
-                self.send_json(sites)
+                        # 原価 = 労務費 + 外注費
+                        total_cost = labor + subcon_cost
 
-            elif path=="/api/extra_works":
-                if not self.auth(mgr=True): return
-                site_id = urlparse(self.path).query.replace("site_id=","") if "site_id=" in self.path else None
-                if site_id:
-                    r=con.execute("SELECT * FROM extra_works WHERE site_id=? ORDER BY date DESC",(site_id,)).fetchall()
-                else:
-                    r=con.execute("SELECT ew.*,s.name site_name FROM extra_works ew LEFT JOIN sites s ON ew.site_id=s.id ORDER BY ew.date DESC").fetchall()
-                self.send_json(rows(r))
+                    profit = revenue - total_cost
+                    cost_per_manday    = round(total_cost / total_mandays) if total_mandays > 0 else 0
+                    revenue_per_manday = round(revenue   / total_mandays) if total_mandays > 0 else 0
+
+                    st.update({
+                        "revenue": revenue, "labor_cost": labor,
+                        "subcon_cost": subcon_cost, "total_cost": total_cost,
+                        "profit": profit,
+                        "profit_rate": round(profit/revenue, 4) if revenue > 0 else 0,
+                        "emp_mandays": emp_mandays,
+                        "subcon_mandays": round(subcon_mandays, 1),
+                        "total_mandays": round(total_mandays, 1),
+                        "cost_per_manday": cost_per_manday,
+                        "revenue_per_manday": revenue_per_manday,
+                    })
+                self.send_json(sites)
 
             elif path=="/api/salary":
                 if not self.auth(mgr=True): return
@@ -255,12 +267,14 @@ class Handler(BaseHTTPRequestHandler):
                     for l in ls:
                         sh,sm=map(int,l["start_time"].split(":")); eh,em=map(int,l["end_time"].split(":"))
                         ac=max(0,(eh*60+em-sh*60-sm-l["rest_min"])/60); ot=max(0,ac-8)
-                        nh+=ac-ot; oh+=ot; w+=round(min(ac,8)*e["hourly"]+ot*e["hourly"]*1.25)
+                        nh+=ac-ot; oh+=ot
+                        if e["hourly"]>0: w+=round(min(ac,8)*e["hourly"]+ot*e["hourly"]*1.25)
                     e.update({"normal_h":round(nh,2),"ot_h":round(oh,2),"wage":w,"days":len(ls)})
                     e.pop("password",None)
                 self.send_json(emps)
 
             else: self.send_json({"error":"Not found"},404)
+
         except Exception as e:
             import traceback; traceback.print_exc()
             self.send_json({"error":str(e)},500)
@@ -284,21 +298,20 @@ class Handler(BaseHTTPRequestHandler):
             if path=="/api/employees":
                 if not self.auth(mgr=True): return
                 con.execute("INSERT INTO employees (id,name,type,hourly,allowance,password,role) VALUES (?,?,?,?,?,?,?)",
-                    (b["id"],b["name"],b.get("type","従業員"),int(b.get("hourly",1800)),int(b.get("allowance",0)),
-                     hash_pw(b.get("password","password1234")),b.get("role","employee")))
+                    (b["id"],b["name"],b.get("type","従業員"),int(b.get("hourly",1800)),
+                     int(b.get("allowance",0)),hash_pw(b.get("password","password1234")),b.get("role","employee")))
                 con.commit()
-                r=con.execute("SELECT id,name,type,hourly,allowance,role FROM employees WHERE id=?",(b["id"],)).fetchone()
-                self.send_json(row(r),201); return
+                self.send_json(row(con.execute("SELECT id,name,type,hourly,allowance,role FROM employees WHERE id=?",(b["id"],)).fetchone()),201); return
 
             s=self.auth()
             if not s: return
 
             if path=="/api/sites":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                con.execute("INSERT INTO sites (id,name,client,site_type,contract,budget,manday_price,extra_amount,status) VALUES (?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?)",
                     (b["id"],b["name"],b.get("client",""),b.get("site_type","請負"),
-                     int(b.get("contract",0)),int(b.get("budget",0)),
-                     int(b.get("manday_price",0)),0,b.get("status","準備中")))
+                     int(b.get("contract",0)),int(b.get("manday_price",0)),
+                     b.get("start_date",""),b.get("end_date",""),b.get("status","準備中")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
 
@@ -317,17 +330,10 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
-            elif path=="/api/expenses":
-                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                cur=con.execute("INSERT INTO expenses (date,site_id,category,amount,payment,memo) VALUES (?,?,?,?,?,?)",
-                    (b["date"],b["siteId"],b["category"],int(b.get("amount",0)),b.get("payment","現金"),b.get("memo","")))
-                con.commit()
-                self.send_json(row(con.execute("SELECT * FROM expenses WHERE id=?",(cur.lastrowid,)).fetchone()),201)
-
             elif path=="/api/subcons":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                cur=con.execute("INSERT INTO subcons (date,vendor,site_id,work,qty,unit,price,status) VALUES (?,?,?,?,?,?,?,?)",
-                    (b["date"],b["vendor"],b["siteId"],b.get("work",""),float(b.get("qty",1)),b.get("unit","人工"),int(b.get("price",0)),b.get("status","未払")))
+                cur=con.execute("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)",
+                    (b["date"],b["vendor"],b["siteId"],float(b.get("qty",1)),b.get("unit","人工"),int(b.get("price",0)),b.get("status","未払")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM subcons WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
@@ -346,28 +352,29 @@ class Handler(BaseHTTPRequestHandler):
         con=get_db()
         try:
             if len(parts)==3:
-                if parts[1]=="subcons": con.execute("UPDATE subcons SET status=? WHERE id=?",(b["status"],parts[2]))
+                if parts[1]=="subcons":
+                    con.execute("UPDATE subcons SET status=? WHERE id=?",(b["status"],parts[2]))
+                    con.commit(); self.send_json({"ok":True})
+
                 elif parts[1]=="sites":
-                    # 更新できるフィールドを選択的に適用
                     fields=[]; vals=[]
-                    for k in ["name","client","site_type","contract","manday_price","status"]:
+                    for k in ["name","client","site_type","contract","manday_price","start_date","end_date","status"]:
                         if k in b:
                             fields.append(f"{k}=?")
                             vals.append(int(b[k]) if k in ["contract","manday_price"] else b[k])
                     if fields:
                         vals.append(parts[2])
-                        con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?", vals)
+                        con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
                     con.commit()
-                    self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(parts[2],)).fetchone())); return
+                    self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(parts[2],)).fetchone()))
 
-                elif parts[1]=="extra_works": con.execute("DELETE FROM extra_works WHERE id=?",(parts[2],)); con.commit(); self.send_json({"deleted":parts[2]}); return
                 elif parts[1]=="employees":
                     if "password" in b: con.execute("UPDATE employees SET password=? WHERE id=?",(hash_pw(b["password"]),parts[2]))
                     if "hourly"   in b: con.execute("UPDATE employees SET hourly=? WHERE id=?",(int(b["hourly"]),parts[2]))
                     con.commit()
-                    self.send_json(row(con.execute("SELECT id,name,type,hourly,allowance,role FROM employees WHERE id=?",(parts[2],)).fetchone())); return
-                else: self.send_json({"error":"Not found"},404); return
-                con.commit(); self.send_json({"ok":True})
+                    self.send_json(row(con.execute("SELECT id,name,type,hourly,allowance,role FROM employees WHERE id=?",(parts[2],)).fetchone()))
+
+                else: self.send_json({"error":"Not found"},404)
             else: self.send_json({"error":"Not found"},404)
         except Exception as e: self.send_json({"error":str(e)},500)
         finally: con.close()
@@ -379,7 +386,8 @@ class Handler(BaseHTTPRequestHandler):
         con=get_db()
         try:
             if len(parts)==3:
-                tmap={"employees":"employees","sites":"sites","logs":"daily_logs","expenses":"expenses","subcons":"subcons","extra_works":"extra_works"}
+                tmap={"employees":"employees","sites":"sites","logs":"daily_logs",
+                      "subcons":"subcons","extra_works":"extra_works"}
                 tbl=tmap.get(parts[1])
                 if not tbl: self.send_json({"error":"Not found"},404); return
                 if parts[1]=="logs" and s["role"]!="manager":
@@ -402,12 +410,7 @@ if __name__=="__main__":
 ╠══════════════════════════════════════════════╣
 ║  URL  : http://localhost:{PORT:<19}║
 ╚══════════════════════════════════════════════╝
-初期ログイン情報:
-  代表  ID: MGR   PW: admin1234
-  田中  ID: E001  PW: tanaka123
-  山田  ID: E002  PW: yamada123
+初期ログイン: MGR/admin1234  E001/tanaka123  E002/yamada123
 """)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n停止"); server.server_close()
+    try: server.serve_forever()
+    except KeyboardInterrupt: print("\n停止"); server.server_close()
