@@ -11,8 +11,7 @@ from urllib.parse import urlparse
 from datetime import datetime
 
 PORT    = int(os.environ.get("PORT", 8000))
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kukito.db")
-
+DB_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "/app") + "/kukito.db"
 SESSIONS  = {}
 SESSION_TTL = 60 * 60 * 24 * 7  # 7日間
 
