@@ -244,6 +244,8 @@ const fmtP = p => p==null?'—':(p*100).toFixed(1)+'%';
 const today= ()=>new Date().toISOString().slice(0,10);
 
 // ── Toast ─────────────────────────────────────────────────────────────────
+
+// ── Toast ─────────────────────────────────────────────────────────────────
 function Toast({msg,type,onDone}){
   useEffect(()=>{const t=setTimeout(onDone,2800);return()=>clearTimeout(t);},[]);
   return <div className={`toast toast-${type}`}>{msg}</div>;
@@ -255,7 +257,6 @@ function Login({onLogin}){
   const [pw,setPw]=useState('');
   const [err,setErr]=useState('');
   const [loading,setLoading]=useState(false);
-
   const submit=async()=>{
     if(!empId||!pw){setErr('IDとパスワードを入力してください');return;}
     setLoading(true);setErr('');
@@ -269,33 +270,29 @@ function Login({onLogin}){
     }catch(e){setErr('サーバーに接続できません');}
     finally{setLoading(false);}
   };
-
   return (
     <div className="login-wrap">
       <div className="login-box">
         <div className="login-logo">
           <div className="logo-mark">㓛刀<span style={{color:'var(--accent)'}}>工業</span></div>
-          <div className="logo-sub" style={{fontFamily:'DM Mono',fontSize:9,color:'var(--mist)',letterSpacing:'2px',marginTop:4}}>WORK MANAGEMENT SYSTEM</div>
+          <div style={{fontFamily:'DM Mono',fontSize:9,color:'var(--mist)',letterSpacing:'2px',marginTop:4}}>WORK MANAGEMENT SYSTEM</div>
         </div>
         <div className="login-title">ログイン</div>
         <div className="login-form">
-          <div className="form-group">
-            <label className="form-label">従業員ID</label>
-            <input className="form-input" placeholder="例：E001" value={empId} onChange={e=>setEmpId(e.target.value.trim())} onKeyDown={e=>e.key==='Enter'&&submit()} autoComplete="username" />
+          <div className="form-group"><label className="form-label">従業員ID</label>
+            <input className="form-input" placeholder="例：E001" value={empId} onChange={e=>setEmpId(e.target.value.trim())} onKeyDown={e=>e.key==='Enter'&&submit()} autoComplete="username"/>
           </div>
-          <div className="form-group">
-            <label className="form-label">パスワード</label>
-            <input className="form-input" type="password" placeholder="パスワードを入力" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} autoComplete="current-password" />
+          <div className="form-group"><label className="form-label">パスワード</label>
+            <input className="form-input" type="password" placeholder="パスワードを入力" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} autoComplete="current-password"/>
           </div>
-          {err && <div style={{color:'var(--red)',fontSize:12,padding:'8px 12px',background:'rgba(239,68,68,.1)',borderRadius:8}}>{err}</div>}
+          {err&&<div style={{color:'var(--red)',fontSize:12,padding:'8px 12px',background:'rgba(239,68,68,.1)',borderRadius:8}}>{err}</div>}
           <button className="login-btn" onClick={submit} disabled={loading}>{loading?'ログイン中…':'ログイン →'}</button>
         </div>
         <div className="login-hint">
           <strong>初期ログイン情報</strong><br/>
           代表：MGR / admin1234<br/>
           田中：E001 / tanaka123<br/>
-          山田：E002 / yamada123<br/>
-          <span style={{fontSize:10,marginTop:4,display:'block'}}>※ マスタ設定でパスワードを変更できます</span>
+          山田：E002 / yamada123
         </div>
       </div>
     </div>
@@ -303,16 +300,21 @@ function Login({onLogin}){
 }
 
 // ── App ───────────────────────────────────────────────────────────────────
+const BASE="";
+const api={
+  get: (p,tk)    => fetch(`${BASE}/api${p}`,{headers:{Authorization:`Bearer ${tk}`}}).then(r=>r.json()),
+  post:(p,b,tk)  => fetch(`${BASE}/api${p}`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${tk}`},body:JSON.stringify(b)}).then(r=>r.json()),
+  put: (p,b,tk)  => fetch(`${BASE}/api${p}`,{method:'PUT', headers:{'Content-Type':'application/json',Authorization:`Bearer ${tk}`},body:JSON.stringify(b)}).then(r=>r.json()),
+  del: (p,tk)    => fetch(`${BASE}/api${p}`,{method:'DELETE',headers:{Authorization:`Bearer ${tk}`}}).then(r=>r.json()),
+};
+
 function App(){
-  const [user,setUser]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('kk_user')||'null');}catch{return null;}
-  });
+  const [user,setUser]=useState(()=>{try{return JSON.parse(localStorage.getItem('kk_user')||'null');}catch{return null;}});
   const [token,setToken]=useState(()=>localStorage.getItem('kk_token')||'');
   const [page,setPage]=useState('dashboard');
-  const [data,setData]=useState({employees:[],sites:[],logs:[],expenses:[],subcons:[],summary:[],salary:[]});
+  const [data,setData]=useState({employees:[],sites:[],logs:[],subcons:[],extra_works:[],summary:[],salary:[]});
   const [loading,setLoading]=useState(false);
   const [toast,setToast]=useState(null);
-
   const showToast=(msg,type='success')=>setToast({msg,type});
 
   const reload=useCallback(async()=>{
@@ -321,15 +323,15 @@ function App(){
     try{
       const isMgr=user.role==='manager';
       const base=[api.get('/sites',token),api.get('/logs',token)];
-      const mgr=isMgr?[api.get('/employees',token),api.get('/summary',token),api.get('/salary',token)]:[];
+      const mgr=isMgr?[api.get('/employees',token),api.get('/subcons',token),api.get('/extra_works',token),api.get('/summary',token),api.get('/salary',token)]:[];
       const [sites,logs,...rest]=await Promise.all([...base,...mgr]);
-      const [employees,summary,salary]=isMgr?rest:[[],[],[]];
+      const [employees,subcons,extra_works,summary,salary]=isMgr?rest:[[],[],[],[],[]];
       setData({
         employees:Array.isArray(employees)?employees:[],
         sites:Array.isArray(sites)?sites:[],
         logs:Array.isArray(logs)?logs:[],
-        expenses:[],
-        subcons:[],
+        subcons:Array.isArray(subcons)?subcons:[],
+        extra_works:Array.isArray(extra_works)?extra_works:[],
         summary:Array.isArray(summary)?summary:[],
         salary:Array.isArray(salary)?salary:[],
       });
@@ -344,28 +346,26 @@ function App(){
     localStorage.removeItem('kk_token');localStorage.removeItem('kk_user');
     setUser(null);setToken('');setPage('dashboard');
   };
-
-  const handleLogin=(data)=>{setUser({empId:data.empId,name:data.name,role:data.role});setToken(data.token);};
+  const handleLogin=(d)=>{setUser({empId:d.empId,name:d.name,role:d.role});setToken(d.token);};
 
   if(!user||!token) return <Login onLogin={handleLogin}/>;
 
   const isMgr=user.role==='manager';
   const navItems=[
-    {key:'dashboard',icon:'◈',label:'ダッシュボード',all:true},
-    {key:'daily',icon:'📋',label:'日報入力',all:true},
-    {key:'sites',icon:'🏗',label:'現場集計',mgr:true},
-    {key:'salary',icon:'💴',label:'給与',mgr:true},
-
-    {key:'master',icon:'⚙',label:'設定',mgr:true},
+    {key:'dashboard',icon:'◈', label:'ダッシュボード',all:true},
+    {key:'daily',    icon:'📋',label:'日報入力',       all:true},
+    {key:'sites',    icon:'🏗', label:'現場集計',       mgr:true},
+    {key:'salary',   icon:'💴',label:'給与',           mgr:true},
+    {key:'subcon',   icon:'🔧',label:'外注',           mgr:true},
+    {key:'master',   icon:'⚙', label:'設定',           mgr:true},
   ].filter(n=>n.all||(n.mgr&&isMgr));
 
-  const totalSales =data.summary.reduce((s,x)=>s+x.contract,0);
-  const totalProfit=data.summary.reduce((s,x)=>s+x.profit,0);
-  const totalLabor =data.summary.reduce((s,x)=>s+(x.labor_cost||0),0);
+  const totalRevenue=data.summary.reduce((s,x)=>s+(x.revenue||0),0);
+  const totalProfit =data.summary.reduce((s,x)=>s+(x.profit||0),0);
+  const totalMandays=data.summary.reduce((s,x)=>s+(x.total_mandays||0),0);
 
   return (
     <div className="shell">
-      {/* PC サイドバー */}
       <div className="sidebar">
         <div className="sidebar-logo">
           <div className="logo-mark">㓛刀<span style={{color:'var(--accent)'}}>工業</span></div>
@@ -377,20 +377,17 @@ function App(){
             <span className="nav-icon">{n.icon}</span>{n.label}
           </button>
         ))}
-        <div style={{padding:'8px 14px',fontSize:11,color:'var(--mist)'}}>
-          <span className="db-dot"></span>接続中
-        </div>
+        <div style={{padding:'8px 14px',fontSize:11,color:'var(--mist)'}}><span className="db-dot"></span>接続中</div>
         <div className="sidebar-footer">
           <div className={`avatar ${isMgr?'av-mgr':'av-emp'}`}>{user.name?.[0]||'？'}</div>
           <div style={{flex:1,minWidth:0}}>
             <div className="user-name" style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.name}</div>
             <div className="user-role">{isMgr?'管理者':'従業員'}</div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={logout} title="ログアウト">→</button>
+          <button className="btn btn-ghost btn-sm" onClick={logout}>→</button>
         </div>
       </div>
 
-      {/* スマホ ヘッダー */}
       <div className="mobile-header">
         <div className="logo-mark">㓛刀<span style={{color:'var(--accent)'}}>工業</span></div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -401,33 +398,30 @@ function App(){
       </div>
 
       <div className="main">
-        {loading && <div style={{height:2,background:'var(--accent)',flexShrink:0}}></div>}
-        {page==='dashboard'&&<Dashboard data={data} totalSales={totalSales} totalProfit={totalProfit} totalLabor={totalLabor} isMgr={isMgr} setPage={setPage}/>}
+        {loading&&<div style={{height:2,background:'var(--accent)',flexShrink:0}}></div>}
+        {page==='dashboard'&&<Dashboard data={data} totalRevenue={totalRevenue} totalProfit={totalProfit} totalMandays={totalMandays} isMgr={isMgr} setPage={setPage}/>}
         {page==='daily'    &&<DailyInput data={data} user={user} token={token} isMgr={isMgr} reload={reload} showToast={showToast}/>}
-        {page==='sites'    &&<SitesPage data={data}/>}
+        {page==='sites'    &&<SitesPage data={data} token={token} reload={reload} showToast={showToast}/>}
         {page==='salary'   &&<SalaryPage data={data}/>}
-
+        {page==='subcon'   &&<SubconPage data={data} token={token} reload={reload} showToast={showToast}/>}
         {page==='master'   &&<MasterPage data={data} token={token} reload={reload} showToast={showToast} user={user}/>}
       </div>
 
-      {/* スマホ ボトムナビ */}
       <div className="bottom-nav">
         {navItems.map(n=>(
           <button key={n.key} className={`nav-item${page===n.key?' active':''}`} onClick={()=>setPage(n.key)}>
-            <span className="nav-icon">{n.icon}</span>
-            <span>{n.label}</span>
+            <span className="nav-icon">{n.icon}</span><span>{n.label}</span>
           </button>
         ))}
       </div>
-
       {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
     </div>
   );
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
-function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
-  const avgR=totalSales>0?totalProfit/totalSales:0;
+function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
+  const avgR=totalRevenue>0?totalProfit/totalRevenue:0;
   return (
     <>
       <div className="topbar">
@@ -437,8 +431,8 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
       <div className="content">
         {isMgr&&<div className="kpi-row">
           <div className="kpi-card" style={{'--kpi-color':'var(--accent)'}}>
-            <div className="kpi-label">今月売上</div>
-            <div className="kpi-value mono">{fmt(totalSales)}</div>
+            <div className="kpi-label">売上合計</div>
+            <div className="kpi-value mono">{fmt(totalRevenue)}</div>
             <div className="kpi-delta">{data.summary.filter(s=>s.status==='進行中').length}件進行中</div>
           </div>
           <div className="kpi-card" style={{'--kpi-color':'var(--green)'}}>
@@ -447,9 +441,9 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
             <div className="kpi-delta">利益率 <span className={avgR>=0.2?'up':'down'}>{fmtP(avgR)}</span></div>
           </div>
           <div className="kpi-card" style={{'--kpi-color':'var(--blue)'}}>
-            <div className="kpi-label">今月総人工数</div>
-            <div className="kpi-value mono">{data.summary.reduce((s,x)=>s+(x.mandays||0),0)}人工</div>
-            <div className="kpi-delta">従業員 {data.employees.filter(e=>e.type==='従業員').length}名</div>
+            <div className="kpi-label">総人工数（全現場）</div>
+            <div className="kpi-value mono">{Math.round(totalMandays)}</div>
+            <div className="kpi-delta">従業員+代表+外注 合計</div>
           </div>
           <div className="kpi-card" style={{'--kpi-color':'var(--purple)'}}>
             <div className="kpi-label">日報件数</div>
@@ -458,17 +452,18 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
           </div>
         </div>}
         {isMgr&&<div className="card">
-          <div className="card-header"><div className="card-title">現場別 利益率</div><span className="badge badge-orange">自動集計</span></div>
+          <div className="card-header"><div className="card-title">現場別サマリー</div><span className="badge badge-orange">自動集計</span></div>
           <div className="table-wrap"><table>
-            <thead><tr><th>ID</th><th>現場名</th><th>売上</th><th>総人工</th><th>1人工売上</th><th>1人工労務費</th><th>状況</th></tr></thead>
+            <thead><tr><th>現場</th><th>タイプ</th><th>売上</th><th>原価</th><th>粗利</th><th>総人工</th><th>1人工売上</th><th>状況</th></tr></thead>
             <tbody>{data.summary.map(s=>(
               <tr key={s.id}>
-                <td className="mono" style={{color:'var(--mist)'}}>{s.id}</td>
                 <td style={{fontWeight:500}}>{s.name}</td>
-                <td className="mono">{fmt(s.contract)}</td>
-                <td className="mono" style={{color:'var(--blue)'}}>{s.mandays||0}人工</td>
+                <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
+                <td className="mono">{fmt(s.revenue)}</td>
+                <td className="mono">{fmt(s.total_cost)}</td>
+                <td className="mono" style={{color:s.profit>=0?'var(--green)':'var(--red)'}}>{fmt(s.profit)}</td>
+                <td className="mono" style={{color:'var(--blue)'}}>{s.total_mandays||0}人工</td>
                 <td className="mono" style={{color:'var(--accent)'}}>{fmt(s.revenue_per_manday)}</td>
-                <td className="mono" style={{color:'var(--purple)'}}>{fmt(s.cost_per_manday)}</td>
                 <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
               </tr>
             ))}</tbody>
@@ -478,17 +473,17 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
           <div className="card-header"><div className="card-title">最近の日報</div><span className="badge badge-blue">{data.logs.length}件</span></div>
           {data.logs.length===0?<div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
           :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>従業員</th><th>現場</th><th>実働</th><th>残業</th><th>労務費</th></tr></thead>
+            <thead><tr><th>日付</th><th>従業員</th><th>現場</th><th>実働</th><th>残業</th></tr></thead>
             <tbody>{data.logs.slice(0,8).map(l=>{
-              const {actual,overtime}=calcH(l.start_time,l.end_time,l.rest_min);
-              const w=l.hourly?Math.round(Math.min(actual,8)*l.hourly+overtime*l.hourly*1.25):0;
+              const sh=+l.start_time.split(':')[0],sm=+l.start_time.split(':')[1];
+              const eh=+l.end_time.split(':')[0],em=+l.end_time.split(':')[1];
+              const ac=Math.max(0,(eh*60+em-sh*60-sm-l.rest_min)/60),ot=Math.max(0,ac-8);
               return <tr key={l.id}>
                 <td className="mono">{l.date}</td>
                 <td>{l.emp_name||l.emp_id}</td>
                 <td><span className="badge badge-orange">{l.site_id}</span></td>
-                <td className="mono" style={{color:'var(--green)'}}>{fmtH(actual)}</td>
-                <td className="mono" style={{color:overtime>0?'var(--purple)':'var(--slate)'}}>{overtime>0?fmtH(overtime):'—'}</td>
-                <td className="mono">{fmt(w)}</td>
+                <td className="mono" style={{color:'var(--green)'}}>{fmtH(ac)}</td>
+                <td className="mono" style={{color:ot>0?'var(--purple)':'var(--slate)'}}>{ot>0?fmtH(ot):'—'}</td>
               </tr>;
             })}</tbody>
           </table></div>}
@@ -498,7 +493,7 @@ function Dashboard({data,totalSales,totalProfit,totalLabor,isMgr,setPage}){
   );
 }
 
-// ── Daily Input ───────────────────────────────────────────────────────────
+// ── DailyInput ────────────────────────────────────────────────────────────
 function DailyInput({data,user,token,isMgr,reload,showToast}){
   const empOpts=isMgr?data.employees:[{id:user.empId,name:user.name}];
   const [form,setForm]=useState({date:today(),empId:user.empId,siteId:data.sites[0]?.id||'',start:'08:00',end:'17:00',rest:60,allowances:[],memo:''});
@@ -506,26 +501,24 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
   useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const toggle=(a)=>setForm(f=>({...f,allowances:f.allowances.includes(a)?f.allowances.filter(x=>x!==a):[...f.allowances,a]}));
-  const {actual,overtime}=calcH(form.start,form.end,+form.rest);
+  const sh=+form.start.split(':')[0],sm=+form.start.split(':')[1];
+  const eh=+form.end.split(':')[0],  em=+form.end.split(':')[1];
+  const actual=Math.max(0,(eh*60+em-sh*60-sm-+form.rest)/60),overtime=Math.max(0,actual-8);
   const emp=data.employees.find(e=>e.id===form.empId)||{hourly:0};
   const wage=Math.round(Math.min(actual,8)*emp.hourly+overtime*emp.hourly*1.25);
 
   const submit=async()=>{
     if(!form.siteId||!form.start||!form.end){showToast('必須項目を入力してください','error');return;}
-    setSaving(true);
-    const res=await api.post('/logs',form,token);
-    setSaving(false);
+    setSaving(true);const res=await api.post('/logs',form,token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
-    showToast('日報を保存しました ✓');
-    reload();
+    showToast('日報を保存しました ✓');reload();
     setForm(f=>({...f,start:'08:00',end:'17:00',rest:60,allowances:[],memo:''}));
   };
-
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
 
   return (
     <>
-      <div className="topbar"><div><div className="page-title">日報入力</div><div className="page-sub">データはDBに保存されます</div></div></div>
+      <div className="topbar"><div><div className="page-title">日報入力</div><div className="page-sub">1人工=1日報として人工集計されます</div></div></div>
       <div className="content">
         <div className="card">
           <div className="card-header"><div className="card-title">日報追加</div><span className="badge badge-orange">新規</span></div>
@@ -560,7 +553,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             <div className="form-group fg-full"><label className="form-label">メモ</label><input type="text" className="form-input" placeholder="任意" value={form.memo} onChange={e=>set('memo',e.target.value)}/></div>
           </div>
           <div className="submit-bar">
-            <div className="submit-info">✅ SQLiteに永続保存されます</div>
+            <div className="submit-info">代表（MGR）は1人工・無給でカウントされます</div>
             <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'日報を送信 →'}</button>
           </div>
         </div>
@@ -568,17 +561,19 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
           <div className="card-header"><div className="card-title">日報一覧</div><span className="badge badge-blue">{data.logs.length}件</span></div>
           {data.logs.length===0?<div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
           :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>従業員</th><th>現場</th><th>開始</th><th>終了</th><th>実働</th><th>残業</th><th>労務費</th><th></th></tr></thead>
+            <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>開始</th><th>終了</th><th>実働</th><th>残業</th><th>労務費</th><th></th></tr></thead>
             <tbody>{data.logs.map(l=>{
-              const {actual,overtime}=calcH(l.start_time,l.end_time,l.rest_min);
-              const w=l.hourly?Math.round(Math.min(actual,8)*l.hourly+overtime*l.hourly*1.25):0;
+              const sh=+l.start_time.split(':')[0],sm2=+l.start_time.split(':')[1];
+              const eh=+l.end_time.split(':')[0],em2=+l.end_time.split(':')[1];
+              const ac=Math.max(0,(eh*60+em2-sh*60-sm2-l.rest_min)/60),ot=Math.max(0,ac-8);
+              const w=l.hourly>0?Math.round(Math.min(ac,8)*l.hourly+ot*l.hourly*1.25):0;
               return <tr key={l.id}>
                 <td className="mono">{l.date}</td><td>{l.emp_name||l.emp_id}</td>
                 <td><span className="badge badge-orange">{l.site_id}</span></td>
                 <td className="mono">{l.start_time}</td><td className="mono">{l.end_time}</td>
-                <td className="mono" style={{color:'var(--green)'}}>{fmtH(actual)}</td>
-                <td className="mono" style={{color:overtime>0?'var(--purple)':'var(--slate)'}}>{overtime>0?fmtH(overtime):'—'}</td>
-                <td className="mono">{fmt(w)}</td>
+                <td className="mono" style={{color:'var(--green)'}}>{fmtH(ac)}</td>
+                <td className="mono" style={{color:ot>0?'var(--purple)':'var(--slate)'}}>{ot>0?fmtH(ot):'—'}</td>
+                <td className="mono">{l.hourly>0?fmt(w):'無給'}</td>
                 <td><button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
               </tr>;
             })}</tbody>
@@ -589,30 +584,26 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
   );
 }
 
-// ── Sites ─────────────────────────────────────────────────────────────────
+// ── SitesPage ─────────────────────────────────────────────────────────────
 function SitesPage({data,token,reload,showToast}){
-  const [editSite,setEditSite]=useState(null);   // 編集中の現場
-  const [extraForm,setExtraForm]=useState(null); // 追加工事フォーム対象現場ID
-  const [ef,setEf]=useState({date:'',description:'',amount:''});
+  const [editSite,setEditSite]=useState(null);
+  const [extraForm,setExtraForm]=useState(null);
+  const [ef,setEf]=useState({date:today(),description:'',amount:''});
   const [saving,setSaving]=useState(false);
 
-  const openEdit=(s)=>setEditSite({...s});
   const saveEdit=async()=>{
     if(!editSite.name){showToast('現場名を入力してください','error');return;}
     setSaving(true);
     const res=await api.put(`/sites/${editSite.id}`,{
-      name:editSite.name,client:editSite.client||'',
-      site_type:editSite.site_type,
-      contract:+editSite.contract||0,
-      manday_price:+editSite.manday_price||0,
-      status:editSite.status,
+      name:editSite.name,client:editSite.client||'',site_type:editSite.site_type,
+      contract:+editSite.contract||0,manday_price:+editSite.manday_price||0,
+      start_date:editSite.start_date||'',end_date:editSite.end_date||'',status:editSite.status,
     },token);
     setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('現場情報を更新しました ✓');setEditSite(null);reload();
   };
 
-  const openExtra=(sid)=>{setExtraForm(sid);setEf({date:today(),description:'',amount:''}); };
   const saveExtra=async()=>{
     if(!ef.amount||!ef.description){showToast('内容と金額を入力してください','error');return;}
     setSaving(true);
@@ -625,7 +616,7 @@ function SitesPage({data,token,reload,showToast}){
 
   return (
     <>
-      <div className="topbar"><div><div className="page-title">現場別集計</div><div className="page-sub">請負・応援 対応（DB自動集計）</div></div></div>
+      <div className="topbar"><div><div className="page-title">現場別集計</div><div className="page-sub">請負・応援 対応 / 人工は従業員+代表+外注の合計</div></div></div>
       <div className="content">
         {data.summary.length===0?<div className="card"><div className="empty"><div className="empty-icon">🏗</div>現場がありません</div></div>
         :data.summary.map(s=>{
@@ -636,45 +627,58 @@ function SitesPage({data,token,reload,showToast}){
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                 <span style={{fontWeight:700,fontSize:14}}>{s.name}</span>
                 <span className="site-id">{s.id}</span>
-                <span className={`badge badge-${isOen?'purple':'orange'}`}>{s.site_type}</span>
+                <span className={`badge badge-${isOen?'purple':'orange'}`}>{s.site_type||'請負'}</span>
                 <span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span>
+                {(s.start_date||s.end_date)&&<span style={{fontSize:10,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>
+                  {s.start_date||'?'} 〜 {s.end_date||'未定'}
+                </span>}
               </div>
-              <div style={{display:'flex',gap:6}}>
-                {!isOen&&<button className="btn btn-ghost btn-sm" onClick={()=>openExtra(s.id)}>＋追加工事</button>}
-                <button className="btn btn-ghost btn-sm" onClick={()=>openEdit(s)}>編集</button>
+              <div style={{display:'flex',gap:6,flexShrink:0}}>
+                {!isOen&&<button className="btn btn-ghost btn-sm" onClick={()=>{setExtraForm(s.id);setEf({date:today(),description:'',amount:''});}}>＋追加工事</button>}
+                <button className="btn btn-ghost btn-sm" onClick={()=>setEditSite({...s})}>編集</button>
               </div>
             </div>
-            <div style={{padding:'12px 18px'}}>
+            <div style={{padding:'14px 18px'}}>
+              {/* 売上・原価ブロック */}
               <div className="site-nums" style={{gridTemplateColumns:'repeat(2,1fr)',marginBottom:10}}>
                 <div>
-                  <div className="site-num-label">{isOen?'1人工単価':'契約金額'}</div>
-                  <div className="site-num-val" style={{color:'var(--white)'}}>
-                    {isOen?fmt(s.manday_price)+' / 人工':fmt(s.contract)}
-                  </div>
+                  <div className="site-num-label">{isOen?'1人工単価':'契約金額'}{s.extra_amount>0?` ＋追加${fmt(s.extra_amount)}`:''}</div>
+                  <div className="site-num-val">{isOen?fmt(s.manday_price)+'/人工':fmt(s.revenue)}</div>
                 </div>
                 <div>
-                  <div className="site-num-label">売上合計{isOen?'（人工×単価）':s.extra_amount>0?`（追加 ${fmt(s.extra_amount)}含む）`:''}</div>
-                  <div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(s.revenue)}</div>
+                  <div className="site-num-label">売上合計</div>
+                  <div className="site-num-val" style={{color:'var(--accent)',fontWeight:700}}>{fmt(s.revenue)}</div>
                 </div>
                 <div>
-                  <div className="site-num-label">総人工数</div>
-                  <div className="site-num-val" style={{color:'var(--blue)'}}>{s.mandays||0}人工</div>
+                  <div className="site-num-label">労務費（従業員+代表）</div>
+                  <div className="site-num-val" style={{color:'var(--blue)'}}>{fmt(s.labor_cost)}</div>
                 </div>
-                <div>
-                  <div className="site-num-label">労務費合計</div>
-                  <div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.labor_cost)}</div>
-                </div>
+                {!isOen&&<div>
+                  <div className="site-num-label">外注費</div>
+                  <div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.subcon_cost)}</div>
+                </div>}
+              </div>
+              {/* 人工内訳 */}
+              <div style={{background:'rgba(255,255,255,0.03)',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:12}}>
+                <span style={{color:'var(--mist)',marginRight:12}}>人工内訳：</span>
+                <span style={{color:'var(--blue)',marginRight:10}}>従業員+代表 {s.emp_mandays}人工</span>
+                <span style={{color:'var(--purple)',marginRight:10}}>外注 {s.subcon_mandays}人工</span>
+                <span style={{fontWeight:700,color:'var(--white)'}}>合計 {s.total_mandays}人工</span>
+              </div>
+              {/* 1人工あたり */}
+              <div className="site-nums" style={{gridTemplateColumns:'repeat(2,1fr)',marginBottom:8}}>
                 <div>
                   <div className="site-num-label">1人工あたり売上</div>
                   <div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(s.revenue_per_manday)}</div>
                 </div>
                 <div>
-                  <div className="site-num-label">1人工あたり労務費</div>
+                  <div className="site-num-label">1人工あたり原価</div>
                   <div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.cost_per_manday)}</div>
                 </div>
               </div>
-              <div style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderTop:'1px solid rgba(255,255,255,0.06)',marginBottom:6}}>
-                <span style={{fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--mist)'}}>
+              {/* 粗利バー */}
+              <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderTop:'1px solid rgba(255,255,255,0.06)',marginBottom:6}}>
+                <span style={{fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--mist)'}}>
                   利益率 <span style={{color:s.profit_rate>=0.2?'var(--green)':'var(--accent)',fontWeight:700}}>{fmtP(s.profit_rate)}</span>
                 </span>
                 <span style={{fontFamily:'DM Mono,monospace',fontSize:13}}>
@@ -683,12 +687,14 @@ function SitesPage({data,token,reload,showToast}){
               </div>
               <div className="stacked">
                 <div style={{width:s.revenue>0?Math.min(100,s.labor_cost/s.revenue*100)+'%':'0%',background:'var(--blue)'}}></div>
+                <div style={{width:s.revenue>0?Math.min(100,(s.subcon_cost||0)/s.revenue*100)+'%':'0%',background:'var(--purple)'}}></div>
                 <div style={{width:s.revenue>0?Math.max(0,s.profit/s.revenue*100)+'%':'0%',background:'var(--green)'}}></div>
               </div>
+              {/* 追加工事リスト */}
               {extraList.length>0&&<div style={{marginTop:10,padding:'8px 10px',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
                 <div style={{fontSize:10,color:'var(--mist)',marginBottom:6,letterSpacing:'1px'}}>追加工事</div>
                 {extraList.map(e=><div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
-                  <span style={{fontSize:12}}>{e.date} {e.description}</span>
+                  <span style={{fontSize:12}}>{e.date}　{e.description}</span>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
                     <span style={{fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--accent)'}}>{fmt(e.amount)}</span>
                     <button className="btn btn-danger btn-sm" onClick={()=>delExtra(e.id)}>削除</button>
@@ -698,14 +704,14 @@ function SitesPage({data,token,reload,showToast}){
             </div>
           </div>;
         })}
-        <div className="legend">{[['var(--blue)','労務費'],['var(--green)','粗利']].map(([c,l])=>(
+        <div className="legend">{[['var(--blue)','労務費'],['var(--purple)','外注費'],['var(--green)','粗利']].map(([c,l])=>(
           <span key={l}><span className="legend-dot" style={{background:c}}></span>{l}</span>
         ))}</div>
       </div>
 
       {/* 現場編集モーダル */}
-      {editSite&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:480,padding:24}}>
+      {editSite&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
+        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:500,padding:24,margin:'auto'}}>
           <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>現場設定を編集</div>
           <div className="form-grid" style={{padding:0}}>
             <div className="form-group fg-full"><label className="form-label">現場名</label>
@@ -727,6 +733,12 @@ function SitesPage({data,token,reload,showToast}){
                   <input type="number" className="form-input" value={editSite.contract||0} onChange={e=>setEditSite(s=>({...s,contract:e.target.value}))}/>
                </div>
             }
+            <div className="form-group"><label className="form-label">開始日</label>
+              <input type="date" className="form-input" value={editSite.start_date||''} onChange={e=>setEditSite(s=>({...s,start_date:e.target.value}))}/>
+            </div>
+            <div className="form-group"><label className="form-label">終了日（予定）</label>
+              <input type="date" className="form-input" value={editSite.end_date||''} onChange={e=>setEditSite(s=>({...s,end_date:e.target.value}))}/>
+            </div>
             <div className="form-group fg-full"><label className="form-label">状況</label>
               <select className="form-input" value={editSite.status} onChange={e=>setEditSite(s=>({...s,status:e.target.value}))}>
                 <option>準備中</option><option>進行中</option><option>完了</option>
@@ -741,7 +753,7 @@ function SitesPage({data,token,reload,showToast}){
       </div>}
 
       {/* 追加工事モーダル */}
-      {extraForm&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      {extraForm&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:400,padding:24}}>
           <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>追加工事を登録</div>
           <div className="form-grid" style={{padding:0}}>
@@ -765,31 +777,30 @@ function SitesPage({data,token,reload,showToast}){
   );
 }
 
+// ── SalaryPage ────────────────────────────────────────────────────────────
 function SalaryPage({data}){
   const total=data.salary.reduce((s,e)=>s+e.wage,0);
   return (
     <>
-      <div className="topbar"><div><div className="page-title">月次給与集計</div><div className="page-sub">残業1.25倍 自動計算</div></div></div>
+      <div className="topbar"><div><div className="page-title">月次給与集計</div><div className="page-sub">残業1.25倍 自動計算 / 代表は無給</div></div></div>
       <div className="content">
         <div className="card">
           <div className="card-header"><div className="card-title">給与明細</div><span className="badge badge-green">自動</span></div>
           {data.salary.length===0?<div className="empty"><div className="empty-icon">💴</div>データがありません</div>
           :<div className="table-wrap"><table>
-            <thead><tr><th>ID</th><th>氏名</th><th>時給</th><th>日数</th><th>通常時間</th><th>残業時間</th><th>通常給与</th><th>残業給与×1.25</th><th>支給合計</th></tr></thead>
+            <thead><tr><th>ID</th><th>氏名</th><th>時給</th><th>日数</th><th>通常h</th><th>残業h</th><th>支給合計</th></tr></thead>
             <tbody>{data.salary.map(e=>(
               <tr key={e.id}>
                 <td className="mono" style={{color:'var(--mist)'}}>{e.id}</td>
                 <td style={{fontWeight:500}}>{e.name}</td>
-                <td className="mono">{fmt(e.hourly)}</td>
+                <td className="mono">{e.hourly>0?fmt(e.hourly):'無給'}</td>
                 <td className="mono">{e.days}日</td>
                 <td className="mono">{fmtH(e.normal_h)}</td>
                 <td className="mono" style={{color:e.ot_h>0?'var(--purple)':'var(--mist)'}}>{e.ot_h>0?fmtH(e.ot_h):'—'}</td>
-                <td className="mono">{fmt(Math.round(e.normal_h*e.hourly))}</td>
-                <td className="mono" style={{color:'var(--purple)'}}>{fmt(Math.round(e.ot_h*e.hourly*1.25))}</td>
-                <td className="mono" style={{fontWeight:700,color:'var(--green)'}}>{fmt(e.wage)}</td>
+                <td className="mono" style={{fontWeight:700,color:e.hourly>0?'var(--green)':'var(--mist)'}}>{e.hourly>0?fmt(e.wage):'—'}</td>
               </tr>
             ))}</tbody>
-            <tfoot><tr className="tfoot"><td colSpan={8} style={{textAlign:'right',color:'var(--mist)'}}>支給合計</td><td className="mono" style={{color:'var(--green)'}}>{fmt(total)}</td></tr></tfoot>
+            <tfoot><tr className="tfoot"><td colSpan={6} style={{textAlign:'right',color:'var(--mist)'}}>支給合計</td><td className="mono" style={{color:'var(--green)'}}>{fmt(total)}</td></tr></tfoot>
           </table></div>}
         </div>
       </div>
@@ -797,77 +808,13 @@ function SalaryPage({data}){
   );
 }
 
-// ── Expense ───────────────────────────────────────────────────────────────
-function ExpensePage({data,token,reload,showToast}){
-  const [form,setForm]=useState({date:today(),siteId:data.sites[0]?.id||'',category:'ガソリン',amount:'',payment:'クレカ',memo:''});
-  const [saving,setSaving]=useState(false);
-  useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
-  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const submit=async()=>{
-    if(!form.amount||!form.siteId){showToast('必須項目を入力してください','error');return;}
-    setSaving(true);const res=await api.post('/expenses',{...form,amount:+form.amount},token);setSaving(false);
-    if(res.error){showToast(res.error,'error');return;}
-    showToast('経費を保存しました ✓');reload();setForm(f=>({...f,amount:'',memo:''}));
-  };
-  const del=async(id)=>{await api.del(`/expenses/${id}`,token);showToast('削除しました');reload();};
-  const total=data.expenses.reduce((s,e)=>s+e.amount,0);
-  return (
-    <>
-      <div className="topbar"><div><div className="page-title">経費入力</div><div className="page-sub">現場に紐付けて保存</div></div></div>
-      <div className="content">
-        <div className="card">
-          <div className="card-header"><div className="card-title">経費追加</div></div>
-          <div className="form-grid">
-            <div className="form-group"><label className="form-label">日付</label><input type="date" className="form-input" value={form.date} onChange={e=>set('date',e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">現場</label>
-              <select className="form-input" value={form.siteId} onChange={e=>set('siteId',e.target.value)}>
-                {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
-              </select>
-            </div>
-            <div className="form-group"><label className="form-label">費目</label>
-              <select className="form-input" value={form.category} onChange={e=>set('category',e.target.value)}>
-                {['ガソリン','高速代','駐車場','材料費','宿泊費','交通費','消耗品','その他'].map(c=><option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="form-group"><label className="form-label">金額（円）</label><input type="number" className="form-input" placeholder="0" value={form.amount} onChange={e=>set('amount',e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">支払方法</label>
-              <select className="form-input" value={form.payment} onChange={e=>set('payment',e.target.value)}>
-                {['クレカ','ETC','現金','振込','請求書'].map(p=><option key={p}>{p}</option>)}
-              </select>
-            </div>
-            <div className="form-group"><label className="form-label">メモ</label><input type="text" className="form-input" placeholder="任意" value={form.memo} onChange={e=>set('memo',e.target.value)}/></div>
-          </div>
-          <div className="submit-bar">
-            <span className="submit-info">今月合計: <strong style={{color:'var(--accent)',fontFamily:'DM Mono,monospace'}}>{fmt(total)}</strong></span>
-            <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header"><div className="card-title">経費一覧</div><span className="badge badge-orange">{data.expenses.length}件</span></div>
-          {data.expenses.length===0?<div className="empty"><div className="empty-icon">🧾</div>経費がありません</div>
-          :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>現場</th><th>費目</th><th>金額</th><th>支払</th><th>メモ</th><th></th></tr></thead>
-            <tbody>{data.expenses.map(e=>(
-              <tr key={e.id}>
-                <td className="mono">{e.date}</td><td><span className="badge badge-orange">{e.site_id}</span></td>
-                <td>{e.category}</td><td className="mono">{fmt(e.amount)}</td>
-                <td style={{color:'var(--mist)'}}>{e.payment}</td><td style={{color:'var(--mist)'}}>{e.memo||'—'}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={()=>del(e.id)}>削除</button></td>
-              </tr>
-            ))}</tbody>
-          </table></div>}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ── Subcon ────────────────────────────────────────────────────────────────
+// ── SubconPage ────────────────────────────────────────────────────────────
 function SubconPage({data,token,reload,showToast}){
-  const [form,setForm]=useState({date:today(),vendor:'',siteId:data.sites[0]?.id||'',work:'',qty:1,unit:'人工',price:'',status:'未払'});
+  const [form,setForm]=useState({date:today(),vendor:'',siteId:data.sites[0]?.id||'',qty:1,unit:'人工',price:'',status:'未払'});
   const [saving,setSaving]=useState(false);
   useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
   const submit=async()=>{
     if(!form.vendor||!form.price){showToast('外注先と金額を入力してください','error');return;}
     setSaving(true);const res=await api.post('/subcons',{...form,qty:+form.qty,price:+form.price},token);setSaving(false);
@@ -876,37 +823,40 @@ function SubconPage({data,token,reload,showToast}){
   };
   const del=async(id)=>{await api.del(`/subcons/${id}`,token);showToast('削除しました');reload();};
   const toggle=async(id,st)=>{await api.put(`/subcons/${id}`,{status:st==='未払'?'支払済':'未払'},token);reload();};
+
   const total=data.subcons.reduce((s,x)=>s+x.qty*x.price,0);
+  const totalMd=data.subcons.reduce((s,x)=>s+x.qty,0);
+
   return (
     <>
-      <div className="topbar"><div><div className="page-title">外注管理</div><div className="page-sub">外注先・支払状況</div></div></div>
+      <div className="topbar"><div><div className="page-title">外注管理</div><div className="page-sub">外注人工は現場集計の人工数に合算されます</div></div></div>
       <div className="content">
         <div className="card">
           <div className="card-header"><div className="card-title">外注追加</div></div>
           <div className="form-grid">
             <div className="form-group"><label className="form-label">日付</label><input type="date" className="form-input" value={form.date} onChange={e=>set('date',e.target.value)}/></div>
             <div className="form-group"><label className="form-label">外注先</label><input type="text" className="form-input" placeholder="A社" value={form.vendor} onChange={e=>set('vendor',e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">現場</label>
+            <div className="form-group fg-full"><label className="form-label">現場</label>
               <select className="form-input" value={form.siteId} onChange={e=>set('siteId',e.target.value)}>
                 {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
               </select>
             </div>
-
-            <div className="form-group"><label className="form-label">数量</label><input type="number" className="form-input" value={form.qty} onChange={e=>set('qty',e.target.value)} min="1"/></div>
+            <div className="form-group"><label className="form-label">数量</label><input type="number" className="form-input" value={form.qty} onChange={e=>set('qty',e.target.value)} min="0.5" step="0.5"/></div>
             <div className="form-group"><label className="form-label">単位</label>
               <select className="form-input" value={form.unit} onChange={e=>set('unit',e.target.value)}>
                 {['人工','一式','m','m²','個','式'].map(u=><option key={u}>{u}</option>)}
               </select>
             </div>
             <div className="form-group"><label className="form-label">単価（円）</label><input type="number" className="form-input" placeholder="0" value={form.price} onChange={e=>set('price',e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">金額（自動）</label>
+            <div className="form-group">
+              <label className="form-label">金額（自動）</label>
               <div style={{padding:'9px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',fontFamily:'DM Mono,monospace',color:'var(--green)'}}>
-                {form.qty&&form.price?fmt(+form.qty * +form.price):'—'}
+                {form.qty&&form.price?fmt(+form.qty*+form.price):'—'}
               </div>
             </div>
           </div>
           <div className="submit-bar">
-            <span className="submit-info">外注合計: <strong style={{color:'var(--accent)',fontFamily:'DM Mono,monospace'}}>{fmt(total)}</strong></span>
+            <span className="submit-info">外注合計: <strong style={{color:'var(--accent)',fontFamily:'DM Mono,monospace'}}>{fmt(total)}</strong>　総人工: <strong style={{color:'var(--purple)',fontFamily:'DM Mono,monospace'}}>{totalMd}人工</strong></span>
             <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button>
           </div>
         </div>
@@ -914,7 +864,7 @@ function SubconPage({data,token,reload,showToast}){
           <div className="card-header"><div className="card-title">外注一覧</div><span className="badge badge-orange">{data.subcons.length}件</span></div>
           {data.subcons.length===0?<div className="empty"><div className="empty-icon">🔧</div>外注情報がありません</div>
           :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>外注先</th><th>現場</th><th>作業</th><th>数量</th><th>金額</th><th>状況</th><th></th></tr></thead>
+            <thead><tr><th>日付</th><th>外注先</th><th>現場</th><th>数量</th><th>金額</th><th>状況</th><th></th></tr></thead>
             <tbody>{data.subcons.map(s=>(
               <tr key={s.id}>
                 <td className="mono">{s.date}</td><td style={{fontWeight:500}}>{s.vendor}</td>
@@ -932,11 +882,11 @@ function SubconPage({data,token,reload,showToast}){
   );
 }
 
-// ── Master ────────────────────────────────────────────────────────────────
+// ── MasterPage ────────────────────────────────────────────────────────────
 function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
   const [ef,setEf]=useState({id:'',name:'',type:'従業員',hourly:1800,allowance:0,password:'',role:'employee'});
-  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',status:'進行中'});
+  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',start_date:'',end_date:'',status:'進行中'});
   const [pwChange,setPwChange]=useState({empId:'',newPw:''});
   const [saving,setSaving]=useState(false);
 
@@ -944,16 +894,20 @@ function MasterPage({data,token,reload,showToast,user}){
     if(!ef.id||!ef.name||!ef.password){showToast('ID・氏名・パスワードを入力してください','error');return;}
     setSaving(true);const res=await api.post('/employees',ef,token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
-    showToast('従業員を追加しました ✓');reload();setEf({id:'',name:'',type:'従業員',hourly:1800,allowance:0,password:'',role:'employee'});
+    showToast('従業員を追加しました ✓');reload();
+    setEf({id:'',name:'',type:'従業員',hourly:1800,allowance:0,password:'',role:'employee'});
   };
   const delEmp=async(id)=>{await api.del(`/employees/${id}`,token);showToast('削除しました');reload();};
+
   const addSite=async()=>{
     if(!sf.id||!sf.name){showToast('IDと現場名を入力してください','error');return;}
-    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,budget:0,manday_price:+sf.manday_price||0},token);setSaving(false);
+    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,manday_price:+sf.manday_price||0},token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
-    showToast('現場を追加しました ✓');reload();setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',status:'進行中'});
+    showToast('現場を追加しました ✓');reload();
+    setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',start_date:'',end_date:'',status:'進行中'});
   };
   const delSite=async(id)=>{await api.del(`/sites/${id}`,token);showToast('削除しました');reload();};
+
   const changePw=async()=>{
     if(!pwChange.empId||!pwChange.newPw){showToast('対象と新しいパスワードを入力してください','error');return;}
     const res=await api.put(`/employees/${pwChange.empId}`,{password:pwChange.newPw},token);
@@ -976,11 +930,6 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="form-grid">
               <div className="form-group"><label className="form-label">ID（例：E003）</label><input className="form-input" placeholder="E003" value={ef.id} onChange={e=>setEf(f=>({...f,id:e.target.value}))}/></div>
               <div className="form-group"><label className="form-label">氏名</label><input className="form-input" placeholder="鈴木 一郎" value={ef.name} onChange={e=>setEf(f=>({...f,name:e.target.value}))}/></div>
-              <div className="form-group"><label className="form-label">区分</label>
-                <select className="form-input" value={ef.type} onChange={e=>setEf(f=>({...f,type:e.target.value}))}>
-                  <option>従業員</option><option>外注</option>
-                </select>
-              </div>
               <div className="form-group"><label className="form-label">権限</label>
                 <select className="form-input" value={ef.role} onChange={e=>setEf(f=>({...f,role:e.target.value}))}>
                   <option value="employee">従業員（日報のみ）</option>
@@ -988,26 +937,26 @@ function MasterPage({data,token,reload,showToast,user}){
                 </select>
               </div>
               <div className="form-group"><label className="form-label">時給（円）</label><input type="number" className="form-input" value={ef.hourly} onChange={e=>setEf(f=>({...f,hourly:e.target.value}))}/></div>
-              <div className="form-group"><label className="form-label">初期パスワード</label><input type="text" className="form-input" placeholder="password1234" value={ef.password} onChange={e=>setEf(f=>({...f,password:e.target.value}))}/></div>
+              <div className="form-group fg-full"><label className="form-label">初期パスワード</label><input type="text" className="form-input" placeholder="password1234" value={ef.password} onChange={e=>setEf(f=>({...f,password:e.target.value}))}/></div>
             </div>
-            <div className="submit-bar"><span></span><button className="btn-submit" onClick={addEmp} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
+            <div className="submit-bar"><span className="submit-info">代表は時給0円で登録してください（人工数にはカウントされます）</span><button className="btn-submit" onClick={addEmp} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
             <div className="card-header"><div className="card-title">従業員一覧</div></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>氏名</th><th>区分</th><th>権限</th><th>時給</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>氏名</th><th>権限</th><th>時給</th><th></th></tr></thead>
               <tbody>{data.employees.map(e=>(
                 <tr key={e.id}>
                   <td className="mono">{e.id}</td><td>{e.name}</td>
-                  <td><span className={`badge badge-${e.type==='従業員'?'blue':'orange'}`}>{e.type}</span></td>
                   <td><span className={`badge badge-${e.role==='manager'?'orange':'blue'}`}>{e.role==='manager'?'代表':'従業員'}</span></td>
-                  <td className="mono">{fmt(e.hourly)}</td>
+                  <td className="mono">{e.hourly>0?fmt(e.hourly):'無給'}</td>
                   <td>{e.id!==user.empId&&<button className="btn btn-danger btn-sm" onClick={()=>delEmp(e.id)}>削除</button>}</td>
                 </tr>
               ))}</tbody>
             </table></div>
           </div>
         </>}
+
         {tab==='site'&&<>
           <div className="card">
             <div className="card-header"><div className="card-title">現場追加</div></div>
@@ -1024,7 +973,9 @@ function MasterPage({data,token,reload,showToast,user}){
                 ?<div className="form-group fg-full"><label className="form-label">1人工単価（円）</label><input type="number" className="form-input" placeholder="25000" value={sf.manday_price} onChange={e=>setSf(f=>({...f,manday_price:e.target.value}))}/></div>
                 :<div className="form-group fg-full"><label className="form-label">契約金額（円）</label><input type="number" className="form-input" placeholder="5000000" value={sf.contract} onChange={e=>setSf(f=>({...f,contract:e.target.value}))}/></div>
               }
-              <div className="form-group"><label className="form-label">状況</label>
+              <div className="form-group"><label className="form-label">開始日</label><input type="date" className="form-input" value={sf.start_date} onChange={e=>setSf(f=>({...f,start_date:e.target.value}))}/></div>
+              <div className="form-group"><label className="form-label">終了日（予定）</label><input type="date" className="form-input" value={sf.end_date} onChange={e=>setSf(f=>({...f,end_date:e.target.value}))}/></div>
+              <div className="form-group fg-full"><label className="form-label">状況</label>
                 <select className="form-input" value={sf.status} onChange={e=>setSf(f=>({...f,status:e.target.value}))}>
                   <option>準備中</option><option>進行中</option><option>完了</option>
                 </select>
@@ -1033,14 +984,16 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="submit-bar"><span></span><button className="btn-submit" onClick={addSite} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">現場一覧</div></div>
+            <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細変更は「現場集計」→「編集」から</span></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額/単価</th><th>状況</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額/単価</th><th>期間</th><th>状況</th><th></th></tr></thead>
               <tbody>{data.sites.map(s=>(
                 <tr key={s.id}>
-                  <td className="mono">{s.id}</td><td>{s.name}</td><td style={{color:'var(--mist)'}}>{s.client}</td>
+                  <td className="mono">{s.id}</td><td>{s.name}</td>
+                  <td style={{color:'var(--mist)'}}>{s.client}</td>
                   <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
                   <td className="mono">{s.site_type==='応援'?fmt(s.manday_price)+'/人工':fmt(s.contract)}</td>
+                  <td style={{fontSize:11,color:'var(--mist)'}}>{s.start_date||'—'}{s.end_date?`〜${s.end_date}`:''}</td>
                   <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
                   <td><button className="btn btn-danger btn-sm" onClick={()=>delSite(s.id)}>削除</button></td>
                 </tr>
@@ -1048,6 +1001,7 @@ function MasterPage({data,token,reload,showToast,user}){
             </table></div>
           </div>
         </>}
+
         {tab==='pw'&&<>
           <div className="card">
             <div className="card-header"><div className="card-title">パスワード変更</div></div>
@@ -1065,14 +1019,6 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="submit-bar">
               <span className="submit-info">変更後は本人に直接お伝えください</span>
               <button className="btn-submit" onClick={changePw}>パスワードを変更する</button>
-            </div>
-          </div>
-          <div className="card" style={{padding:20}}>
-            <div style={{fontSize:13,color:'var(--mist)',lineHeight:1.8}}>
-              <strong style={{color:'var(--white)'}}>ログイン情報の管理について</strong><br/>
-              ・パスワードはSHA-256でハッシュ化してDBに保存されます<br/>
-              ・忘れた場合は代表（管理者）がここから再設定できます<br/>
-              ・従業員は自分のIDでログインし、自分の日報のみ閲覧・入力できます
             </div>
           </div>
         </>}
