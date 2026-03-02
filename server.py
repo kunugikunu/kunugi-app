@@ -42,9 +42,21 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS sites (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, client TEXT,
+        site_type TEXT DEFAULT '請負',
         contract INTEGER DEFAULT 0, budget INTEGER DEFAULT 0,
+        manday_price INTEGER DEFAULT 0,
+        extra_amount INTEGER DEFAULT 0,
         status TEXT DEFAULT '準備中',
         created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+    CREATE TABLE IF NOT EXISTS extra_works (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        amount INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (site_id) REFERENCES sites(id)
     );
     CREATE TABLE IF NOT EXISTS daily_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +84,12 @@ def init_db():
     if "password" not in cols: cur.execute("ALTER TABLE employees ADD COLUMN password TEXT DEFAULT ''")
     if "role" not in cols:     cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
 
+    # マイグレーション（既存sitesテーブルへのカラム追加）
+    site_cols = [r[1] for r in cur.execute("PRAGMA table_info(sites)")]
+    if "site_type"    not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
+    if "manday_price" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
+    if "extra_amount" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN extra_amount INTEGER DEFAULT 0")
+
     if cur.execute("SELECT COUNT(*) FROM employees").fetchone()[0] == 0:
         cur.executemany(
             "INSERT INTO employees (id,name,type,hourly,allowance,password,role) VALUES (?,?,?,?,?,?,?)", [
@@ -79,11 +97,11 @@ def init_db():
             ("E001", "田中 太郎",  "従業員", 1800, 3000, hash_pw("tanaka123"), "employee"),
             ("E002", "山田 花子",  "従業員", 1600, 3000, hash_pw("yamada123"), "employee"),
         ])
-        cur.executemany("INSERT INTO sites (id,name,client,contract,budget,status) VALUES (?,?,?,?,?,?)", [
-            ("S001","〇〇ビル新築工事","〇〇建設",  5000000,3500000,"進行中"),
-            ("S002","△△マンション改修","△△不動産", 3000000,2000000,"進行中"),
-            ("S003","□□倉庫電気工事","□□物流",   2500000,1800000,"進行中"),
-            ("S004","◇◇住宅リフォーム","直接受注",  1200000, 900000,"準備中"),
+        cur.executemany("INSERT INTO sites (id,name,client,contract,budget,site_type,manday_price,extra_amount,status) VALUES (?,?,?,?,?,?,?,?,?)", [
+            ("S001","〇〇ビル新築工事","〇〇建設",  5000000,3500000,"請負",0,0,"進行中"),
+            ("S002","△△マンション改修","△△不動産", 3000000,2000000,"請負",0,0,"進行中"),
+            ("S003","□□倉庫電気工事","□□物流",   0,0,"応援",25000,0,"進行中"),
+            ("S004","◇◇住宅リフォーム","直接受注",  1200000, 900000,"請負",0,0,"準備中"),
         ])
         td = datetime.now().strftime("%Y-%m-%d")
         cur.executemany("INSERT INTO daily_logs (date,emp_id,site_id,start_time,end_time,rest_min,allowances,memo) VALUES (?,?,?,?,?,?,?,?)", [
@@ -204,15 +222,29 @@ class Handler(BaseHTTPRequestHandler):
                         ac=max(0,(eh*60+em-sh*60-sm-l["rest_min"])/60); ot=max(0,ac-8)
                         if l["hourly"]>0:
                             labor+=round(min(ac,8)*l["hourly"]+ot*l["hourly"]*1.25)
-                    sc=con.execute("SELECT COALESCE(SUM(qty*price),0) t FROM subcons WHERE site_id=?",(sid,)).fetchone()["t"]
-                    ex=con.execute("SELECT COALESCE(SUM(amount),0) t FROM expenses WHERE site_id=?",(sid,)).fetchone()["t"]
-                    tc=labor+sc+ex; pr=st["contract"]-tc
-                    cost_per_manday=round(tc/mandays) if mandays>0 else 0
-                    revenue_per_manday=round(st["contract"]/mandays) if mandays>0 else 0
-                    st.update({"labor_cost":labor,"subcon_cost":sc,"expense_cost":ex,"total_cost":tc,"profit":pr,
-                               "profit_rate":round(pr/st["contract"],4) if st["contract"]>0 else 0,
+                    # 売上計算：応援は人工×単価、請負は契約金額＋追加工事
+                    if st.get("site_type")=="応援":
+                        revenue = mandays * st.get("manday_price",0)
+                    else:
+                        extra = con.execute("SELECT COALESCE(SUM(amount),0) t FROM extra_works WHERE site_id=?",(sid,)).fetchone()["t"]
+                        revenue = st["contract"] + extra
+                        st["extra_amount"] = extra
+                    profit = revenue - labor
+                    cost_per_manday = round(labor/mandays) if mandays>0 else 0
+                    revenue_per_manday = round(revenue/mandays) if mandays>0 else 0
+                    st.update({"revenue":revenue,"labor_cost":labor,"total_cost":labor,"profit":profit,
+                               "profit_rate":round(profit/revenue,4) if revenue>0 else 0,
                                "mandays":mandays,"cost_per_manday":cost_per_manday,"revenue_per_manday":revenue_per_manday})
                 self.send_json(sites)
+
+            elif path=="/api/extra_works":
+                if not self.auth(mgr=True): return
+                site_id = urlparse(self.path).query.replace("site_id=","") if "site_id=" in self.path else None
+                if site_id:
+                    r=con.execute("SELECT * FROM extra_works WHERE site_id=? ORDER BY date DESC",(site_id,)).fetchall()
+                else:
+                    r=con.execute("SELECT ew.*,s.name site_name FROM extra_works ew LEFT JOIN sites s ON ew.site_id=s.id ORDER BY ew.date DESC").fetchall()
+                self.send_json(rows(r))
 
             elif path=="/api/salary":
                 if not self.auth(mgr=True): return
@@ -263,10 +295,19 @@ class Handler(BaseHTTPRequestHandler):
 
             if path=="/api/sites":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                con.execute("INSERT INTO sites (id,name,client,contract,budget,status) VALUES (?,?,?,?,?,?)",
-                    (b["id"],b["name"],b.get("client",""),int(b.get("contract",0)),int(b.get("budget",0)),b.get("status","準備中")))
+                con.execute("INSERT INTO sites (id,name,client,site_type,contract,budget,manday_price,extra_amount,status) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (b["id"],b["name"],b.get("client",""),b.get("site_type","請負"),
+                     int(b.get("contract",0)),int(b.get("budget",0)),
+                     int(b.get("manday_price",0)),0,b.get("status","準備中")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
+
+            elif path=="/api/extra_works":
+                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
+                cur=con.execute("INSERT INTO extra_works (site_id,date,description,amount) VALUES (?,?,?,?)",
+                    (b["siteId"],b["date"],b.get("description","追加工事"),int(b.get("amount",0))))
+                con.commit()
+                self.send_json(row(con.execute("SELECT * FROM extra_works WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
             elif path=="/api/logs":
                 eid = b.get("empId",s["emp_id"]) if s["role"]=="manager" else s["emp_id"]
@@ -306,7 +347,20 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if len(parts)==3:
                 if parts[1]=="subcons": con.execute("UPDATE subcons SET status=? WHERE id=?",(b["status"],parts[2]))
-                elif parts[1]=="sites": con.execute("UPDATE sites SET status=? WHERE id=?",(b["status"],parts[2]))
+                elif parts[1]=="sites":
+                    # 更新できるフィールドを選択的に適用
+                    fields=[]; vals=[]
+                    for k in ["name","client","site_type","contract","manday_price","status"]:
+                        if k in b:
+                            fields.append(f"{k}=?")
+                            vals.append(int(b[k]) if k in ["contract","manday_price"] else b[k])
+                    if fields:
+                        vals.append(parts[2])
+                        con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?", vals)
+                    con.commit()
+                    self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(parts[2],)).fetchone())); return
+
+                elif parts[1]=="extra_works": con.execute("DELETE FROM extra_works WHERE id=?",(parts[2],)); con.commit(); self.send_json({"deleted":parts[2]}); return
                 elif parts[1]=="employees":
                     if "password" in b: con.execute("UPDATE employees SET password=? WHERE id=?",(hash_pw(b["password"]),parts[2]))
                     if "hourly"   in b: con.execute("UPDATE employees SET hourly=? WHERE id=?",(int(b["hourly"]),parts[2]))
@@ -325,7 +379,7 @@ class Handler(BaseHTTPRequestHandler):
         con=get_db()
         try:
             if len(parts)==3:
-                tmap={"employees":"employees","sites":"sites","logs":"daily_logs","expenses":"expenses","subcons":"subcons"}
+                tmap={"employees":"employees","sites":"sites","logs":"daily_logs","expenses":"expenses","subcons":"subcons","extra_works":"extra_works"}
                 tbl=tmap.get(parts[1])
                 if not tbl: self.send_json({"error":"Not found"},404); return
                 if parts[1]=="logs" and s["role"]!="manager":
