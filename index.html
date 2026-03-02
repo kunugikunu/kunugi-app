@@ -229,21 +229,10 @@ select.form-input option{background:var(--steel);}
 <script type="text/babel">
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-const BASE = "";  // same origin（Railway では不要）
-const api = {
-  get:  (p,tk)   => fetch(`${BASE}/api${p}`,{headers:{Authorization:`Bearer ${tk}`}}).then(r=>r.json()),
-  post: (p,b,tk) => fetch(`${BASE}/api${p}`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${tk}`},body:JSON.stringify(b)}).then(r=>r.json()),
-  put:  (p,b,tk) => fetch(`${BASE}/api${p}`,{method:'PUT',headers:{'Content-Type':'application/json',Authorization:`Bearer ${tk}`},body:JSON.stringify(b)}).then(r=>r.json()),
-  del:  (p,tk)   => fetch(`${BASE}/api${p}`,{method:'DELETE',headers:{Authorization:`Bearer ${tk}`}}).then(r=>r.json()),
-};
-
-const calcH = (s,e,r)=>{if(!s||!e)return{actual:0,overtime:0};const[sh,sm]=s.split(':').map(Number),[eh,em]=e.split(':').map(Number);const ac=Math.max(0,(eh*60+em-sh*60-sm-r)/60);return{actual:ac,overtime:Math.max(0,ac-8)};};
 const fmt  = n => n==null?'—':'¥'+Math.round(n).toLocaleString();
 const fmtH = h => h==null?'—':h.toFixed(2)+'h';
 const fmtP = p => p==null?'—':(p*100).toFixed(1)+'%';
 const today= ()=>new Date().toISOString().slice(0,10);
-
-// ── Toast ─────────────────────────────────────────────────────────────────
 
 // ── Toast ─────────────────────────────────────────────────────────────────
 function Toast({msg,type,onDone}){
