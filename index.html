@@ -216,6 +216,7 @@ select.form-input option{background:var(--steel);}
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
 const fmt  = n => n==null?'—':'¥'+Math.round(n).toLocaleString();
+const fmtTax = n => n==null?'—':'¥'+Math.round(n*1.1).toLocaleString(); // 税込(10%)
 const fmtH = h => h==null?'—':h.toFixed(2)+'h';
 const fmtP = p => p==null?'—':(p*100).toFixed(1)+'%';
 const today= ()=>new Date().toISOString().slice(0,10);
@@ -407,14 +408,9 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
       <div className="content">
         {isMgr&&<div className="kpi-row">
           <div className="kpi-card" style={{'--kpi-color':'var(--accent)'}}>
-            <div className="kpi-label">売上合計</div>
+            <div className="kpi-label">売上合計（税抜）</div>
             <div className="kpi-value mono">{fmt(totalRevenue)}</div>
-            <div className="kpi-delta">{data.summary.filter(s=>s.status==='進行中').length}件進行中</div>
-          </div>
-          <div className="kpi-card" style={{'--kpi-color':'var(--green)'}}>
-            <div className="kpi-label">粗利合計</div>
-            <div className="kpi-value mono" style={{color:totalProfit>=0?'var(--green)':'var(--red)'}}>{fmt(totalProfit)}</div>
-            <div className="kpi-delta">利益率 <span className={avgR>=0.2?'up':'down'}>{fmtP(avgR)}</span></div>
+            <div className="kpi-delta" style={{fontFamily:'DM Mono,monospace'}}>税込 {fmtTax(totalRevenue)}</div>
           </div>
           <div className="kpi-card" style={{'--kpi-color':'var(--blue)'}}>
             <div className="kpi-label">総人工数（全現場）</div>
@@ -430,16 +426,16 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
         {isMgr&&<div className="card">
           <div className="card-header"><div className="card-title">現場別サマリー</div><span className="badge badge-orange">自動集計</span></div>
           <div className="table-wrap"><table>
-            <thead><tr><th>現場</th><th>タイプ</th><th>売上</th><th>原価</th><th>粗利</th><th>総人工</th><th>1人工売上</th><th>状況</th></tr></thead>
+            <thead><tr><th>現場</th><th>タイプ</th><th>売上（税抜）</th><th>税込売上</th><th>総人工</th><th>1人工売上（税抜）</th><th>税込</th><th>状況</th></tr></thead>
             <tbody>{data.summary.map(s=>(
               <tr key={s.id}>
                 <td style={{fontWeight:500}}>{s.name}</td>
                 <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
                 <td className="mono">{fmt(s.revenue)}</td>
-                <td className="mono">{fmt(s.total_cost)}</td>
-                <td className="mono" style={{color:s.profit>=0?'var(--green)':'var(--red)'}}>{fmt(s.profit)}</td>
+                <td className="mono" style={{color:'var(--mist)',fontSize:11}}>{fmtTax(s.revenue)}</td>
                 <td className="mono" style={{color:'var(--blue)'}}>{s.total_mandays||0}人工</td>
                 <td className="mono" style={{color:'var(--accent)'}}>{fmt(s.revenue_per_manday)}</td>
+                <td className="mono" style={{color:'var(--mist)',fontSize:11}}>{fmtTax(s.revenue_per_manday)}</td>
                 <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
               </tr>
             ))}</tbody>
@@ -798,12 +794,14 @@ function SitesPage({data,token,reload,showToast}){
             <div style={{padding:'14px 18px'}}>
               <div className="site-nums" style={{gridTemplateColumns:'repeat(2,1fr)',marginBottom:10}}>
                 <div>
-                  <div className="site-num-label">{isOen?'1人工単価':'契約金額'}{s.extra_amount>0?` ＋追加${fmt(s.extra_amount)}`:''}</div>
+                  <div className="site-num-label">{isOen?'1人工単価（税抜）':'契約金額（税抜）'}{s.extra_amount>0?` ＋追加${fmt(s.extra_amount)}`:''}</div>
                   <div className="site-num-val">{isOen?fmt(s.manday_price)+'/人工':fmt(s.revenue)}</div>
+                  <div style={{fontSize:10,color:'var(--mist)',fontFamily:'DM Mono,monospace',marginTop:2}}>税込 {isOen?fmtTax(s.manday_price)+'/人工':fmtTax(s.revenue)}</div>
                 </div>
                 <div>
-                  <div className="site-num-label">売上合計</div>
+                  <div className="site-num-label">売上合計（税抜）</div>
                   <div className="site-num-val" style={{color:'var(--accent)',fontWeight:700}}>{fmt(s.revenue)}</div>
+                  <div style={{fontSize:10,color:'var(--mist)',fontFamily:'DM Mono,monospace',marginTop:2}}>税込 {fmtTax(s.revenue)}</div>
                 </div>
                 <div>
                   <div className="site-num-label">労務費（従業員+代表）</div>
@@ -822,26 +820,18 @@ function SitesPage({data,token,reload,showToast}){
               </div>
               <div className="site-nums" style={{gridTemplateColumns:'repeat(2,1fr)',marginBottom:8}}>
                 <div>
-                  <div className="site-num-label">1人工あたり売上</div>
+                  <div className="site-num-label">1人工あたり売上（税抜）</div>
                   <div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(s.revenue_per_manday)}</div>
+                  <div style={{fontSize:10,color:'var(--mist)',fontFamily:'DM Mono,monospace',marginTop:2}}>税込 {fmtTax(s.revenue_per_manday)}</div>
                 </div>
                 <div>
-                  <div className="site-num-label">1人工あたり原価</div>
-                  <div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(s.cost_per_manday)}</div>
+                  <div className="site-num-label">総人工数</div>
+                  <div className="site-num-val" style={{color:'var(--blue)'}}>{s.total_mandays}人工</div>
                 </div>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderTop:'1px solid rgba(255,255,255,0.06)',marginBottom:6}}>
-                <span style={{fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--mist)'}}>
-                  利益率 <span style={{color:s.profit_rate>=0.2?'var(--green)':'var(--accent)',fontWeight:700}}>{fmtP(s.profit_rate)}</span>
-                </span>
-                <span style={{fontFamily:'DM Mono,monospace',fontSize:13}}>
-                  粗利 <span style={{color:s.profit>=0?'var(--green)':'var(--red)',fontWeight:700}}>{fmt(s.profit)}</span>
-                </span>
               </div>
               <div className="stacked">
                 <div style={{width:s.revenue>0?Math.min(100,s.labor_cost/s.revenue*100)+'%':'0%',background:'var(--blue)'}}></div>
                 <div style={{width:s.revenue>0?Math.min(100,(s.subcon_cost||0)/s.revenue*100)+'%':'0%',background:'var(--purple)'}}></div>
-                <div style={{width:s.revenue>0?Math.max(0,s.profit/s.revenue*100)+'%':'0%',background:'var(--green)'}}></div>
               </div>
               {extraList.length>0&&<div style={{marginTop:10,padding:'8px 10px',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
                 <div style={{fontSize:10,color:'var(--mist)',marginBottom:6,letterSpacing:'1px'}}>追加工事</div>
@@ -856,7 +846,7 @@ function SitesPage({data,token,reload,showToast}){
             </div>
           </div>;
         })}
-        <div className="legend">{[['var(--blue)','労務費'],['var(--purple)','外注費'],['var(--green)','粗利']].map(([c,l])=>(
+        <div className="legend">{[['var(--blue)','労務費'],['var(--purple)','外注費']].map(([c,l])=>(
           <span key={l}><span className="legend-dot" style={{background:c}}></span>{l}</span>
         ))}</div>
       </div>
