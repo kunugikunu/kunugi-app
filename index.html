@@ -519,6 +519,9 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
     showToast('日報を修正しました ✓');setEditLog(null);reload();
   };
 
+  // 管理者として入力する対象が自分（MGR）かどうか
+  const isInputtingMgr = form.empId === user.empId && user.role === 'manager';
+
   return (
     <>
       <div className="topbar">
@@ -544,48 +547,55 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
                 {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">残業時間（h）</label>
-              <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
-                value={form.overtime_h} onChange={e=>set('overtime_h',e.target.value)}/>
-            </div>
-            <div className="form-group">
-              <label className="form-label">
-                運転
-                {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>片道 {km}km</span>}
-                {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※現場に距離未設定</span>}
-              </label>
-              <select className="form-input" value={form.drive_type} onChange={e=>set('drive_type',e.target.value)}>
-                <option>なし</option><option>片道</option><option>往復</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">出張</label>
-              <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
-                <input type="checkbox" checked={form.is_trip} onChange={e=>set('is_trip',e.target.checked)}
-                  style={{width:16,height:16,accentColor:'var(--accent)'}}/>
-                <span style={{fontSize:13}}>出張あり
-                  {empInfo?.trip_allowance>0 && <span style={{marginLeft:6,fontSize:11,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>(+{(empInfo.trip_allowance).toLocaleString()}円)</span>}
-                </span>
-              </label>
-            </div>
-            {/* 手当プレビュー */}
-            {(km>0||otPay>0||tripPay>0) && <div className="form-group fg-full">
-              <label className="form-label">手当プレビュー（{moveKm>0?`${form.drive_type==='なし'?'移動':form.drive_type} ${moveKm}km`:''}）</label>
-              <div className="calc-box">
-                {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
-                {tripPay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--accent)'}}>{fmt(tripPay)}</div><div className="calc-lbl">出張手当</div></div>}
-                {drivePay>0&& <div className="calc-item"><div className="calc-val" style={{color:'var(--blue)'}}>{fmt(drivePay)}</div><div className="calc-lbl">運転手当</div></div>}
-                {movePay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--green)'}}>{fmt(movePay)}</div><div className="calc-lbl">移動手当</div></div>}
+            {/* 代表自身の日報はシンプル：メモのみ */}
+            {isInputtingMgr ? <>
+              <div className="form-group fg-full">
+                <label className="form-label">メモ（任意）</label>
+                <input type="text" className="form-input" placeholder="特記事項など" value={form.memo} onChange={e=>set('memo',e.target.value)}/>
               </div>
-            </div>}
-            <div className="form-group fg-full">
-              <label className="form-label">メモ（任意）</label>
-              <input type="text" className="form-input" placeholder="特記事項など" value={form.memo} onChange={e=>set('memo',e.target.value)}/>
-            </div>
+            </> : <>
+              <div className="form-group">
+                <label className="form-label">残業時間（h）</label>
+                <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
+                  value={form.overtime_h} onChange={e=>set('overtime_h',e.target.value)}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  運転
+                  {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>片道 {km}km</span>}
+                  {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※現場に距離未設定</span>}
+                </label>
+                <select className="form-input" value={form.drive_type} onChange={e=>set('drive_type',e.target.value)}>
+                  <option>なし</option><option>片道</option><option>往復</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">出張</label>
+                <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
+                  <input type="checkbox" checked={form.is_trip} onChange={e=>set('is_trip',e.target.checked)}
+                    style={{width:16,height:16,accentColor:'var(--accent)'}}/>
+                  <span style={{fontSize:13}}>出張あり
+                    {empInfo?.trip_allowance>0 && <span style={{marginLeft:6,fontSize:11,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>(+{(empInfo.trip_allowance).toLocaleString()}円)</span>}
+                  </span>
+                </label>
+              </div>
+              {(km>0||otPay>0||tripPay>0) && <div className="form-group fg-full">
+                <label className="form-label">手当プレビュー（{moveKm>0?`${form.drive_type==='なし'?'移動':form.drive_type} ${moveKm}km`:''}）</label>
+                <div className="calc-box">
+                  {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
+                  {tripPay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--accent)'}}>{fmt(tripPay)}</div><div className="calc-lbl">出張手当</div></div>}
+                  {drivePay>0&& <div className="calc-item"><div className="calc-val" style={{color:'var(--blue)'}}>{fmt(drivePay)}</div><div className="calc-lbl">運転手当</div></div>}
+                  {movePay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--green)'}}>{fmt(movePay)}</div><div className="calc-lbl">移動手当</div></div>}
+                </div>
+              </div>}
+              <div className="form-group fg-full">
+                <label className="form-label">メモ（任意）</label>
+                <input type="text" className="form-input" placeholder="特記事項など" value={form.memo} onChange={e=>set('memo',e.target.value)}/>
+              </div>
+            </>}
           </div>
           <div className="submit-bar">
-            <div className="submit-info">現場の距離は「設定→現場」から変更できます</div>
+            <div className="submit-info">{isInputtingMgr?'代表の出勤記録（人工にカウント・給与計算なし）':'現場の距離は「設定→現場」から変更できます'}</div>
             <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'日報を送信 →'}</button>
           </div>
         </div>
