@@ -484,9 +484,12 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
 
   // 現場の片道km取得（sites テーブルから）
   const km = data.sites.find(s=>s.id===form.siteId)?.one_way_km || 0;
-  const actualKm = form.drive_type==='往復' ? km*2 : form.drive_type==='片道' ? km : 0;
-  const drivePay = Math.round(actualKm * 4);
-  const movePay  = Math.round(actualKm * 14);
+  // 運転した実走行距離（片道/往復）
+  const drivenKm = form.drive_type==='往復' ? km*2 : form.drive_type==='片道' ? km : 0;
+  // 移動手当km: 運転なしでも現場kmがあれば片道分発生
+  const moveKm   = form.drive_type==='なし' ? km : drivenKm;
+  const drivePay = Math.round(drivenKm * 4);
+  const movePay  = Math.round(moveKm * 14);
   const otPay    = Math.round((parseFloat(form.overtime_h)||0) * 2100);
   const empInfo  = data.employees.find(e=>e.id===form.empId);
   const tripPay  = form.is_trip ? (empInfo?.trip_allowance||0) : 0;
@@ -557,8 +560,8 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               </label>
             </div>
             {/* 手当プレビュー */}
-            {(otPay>0||actualKm>0||tripPay>0) && <div className="form-group fg-full">
-              <label className="form-label">手当プレビュー（{form.drive_type!=='なし'?`実走${actualKm}km`:''}）</label>
+            {(otPay>0||moveKm>0||tripPay>0) && <div className="form-group fg-full">
+              <label className="form-label">手当プレビュー（{moveKm>0?`${form.drive_type==='なし'?'移動':form.drive_type} ${moveKm}km`:''}）</label>
               <div className="calc-box">
                 {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
                 {tripPay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--accent)'}}>{fmt(tripPay)}</div><div className="calc-lbl">出張手当</div></div>}
@@ -584,13 +587,14 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             : <div className="table-wrap"><table>
               <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>出張</th><th>メモ</th><th></th></tr></thead>
               <tbody>{data.logs.map(l=>{
-                const akm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
+                const dkm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
+                const mkm = l.drive_type==='なし'?(l.drive_km||0):dkm;
                 return <tr key={l.id}>
                   <td className="mono">{l.date}</td>
                   <td>{l.emp_name||l.emp_id}</td>
                   <td><span className="badge badge-orange">{l.site_id}</span></td>
                   <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
-                  <td style={{fontSize:11,color:'var(--blue)'}}>{akm>0?`${l.drive_type} ${akm}km`:'—'}</td>
+                  <td style={{fontSize:11,color:'var(--blue)'}}>{mkm>0?`${l.drive_type==='なし'?'移動':l.drive_type} ${mkm}km`:'—'}</td>
                   <td>{l.is_trip?<span className="badge badge-orange">出張</span>:'—'}</td>
                   <td style={{color:'var(--mist)',fontSize:11}}>{l.memo||'—'}</td>
                   <td><button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
