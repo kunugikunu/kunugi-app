@@ -508,6 +508,16 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
     setForm(f=>({...f,overtime_h:'',drive_type:'なし',is_trip:false,memo:''}));
   };
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
+  const [editLog,setEditLog]=useState(null);
+  const [editSaving,setEditSaving]=useState(false);
+  const openEdit=(l)=>setEditLog({id:l.id,date:l.date,empId:l.emp_id,siteId:l.site_id,overtime_h:l.overtime_h||0,drive_type:l.drive_type||'なし',is_trip:!!l.is_trip,memo:l.memo||''});
+  const saveEdit=async()=>{
+    setEditSaving(true);
+    const res=await api.put(`/logs/${editLog.id}`,{date:editLog.date,emp_id:editLog.empId,site_id:editLog.siteId,overtime_h:parseFloat(editLog.overtime_h)||0,drive_type:editLog.drive_type,is_trip:editLog.is_trip?1:0,memo:editLog.memo},token);
+    setEditSaving(false);
+    if(res.error){showToast(res.error,'error');return;}
+    showToast('日報を修正しました ✓');setEditLog(null);reload();
+  };
 
   return (
     <>
@@ -560,7 +570,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               </label>
             </div>
             {/* 手当プレビュー */}
-            {(otPay>0||moveKm>0||tripPay>0) && <div className="form-group fg-full">
+            {(km>0||otPay>0||tripPay>0) && <div className="form-group fg-full">
               <label className="form-label">手当プレビュー（{moveKm>0?`${form.drive_type==='なし'?'移動':form.drive_type} ${moveKm}km`:''}）</label>
               <div className="calc-box">
                 {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
@@ -597,12 +607,54 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
                   <td style={{fontSize:11,color:'var(--blue)'}}>{mkm>0?`${l.drive_type==='なし'?'移動':l.drive_type} ${mkm}km`:'—'}</td>
                   <td>{l.is_trip?<span className="badge badge-orange">出張</span>:'—'}</td>
                   <td style={{color:'var(--mist)',fontSize:11}}>{l.memo||'—'}</td>
-                  <td><button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
+                  <td style={{display:"flex",gap:4}}>{isMgr&&<button className="btn btn-ghost btn-sm" onClick={()=>openEdit(l)}>修正</button>}<button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
                 </tr>;
               })}</tbody>
             </table></div>}
         </div>
       </div>
+      {editLog&&isMgr&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
+        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:480,padding:24,margin:'auto'}}>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>日報を修正</div>
+          <div className="form-grid" style={{padding:0}}>
+            <div className="form-group"><label className="form-label">日付</label>
+              <input type="date" className="form-input" value={editLog.date} onChange={e=>setEditLog(f=>({...f,date:e.target.value}))}/>
+            </div>
+            <div className="form-group"><label className="form-label">従業員</label>
+              <select className="form-input" value={editLog.empId} onChange={e=>setEditLog(f=>({...f,empId:e.target.value}))}>
+                {data.employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group fg-full"><label className="form-label">現場</label>
+              <select className="form-input" value={editLog.siteId} onChange={e=>setEditLog(f=>({...f,siteId:e.target.value}))}>
+                {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">残業時間（h）</label>
+              <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
+                value={editLog.overtime_h} onChange={e=>setEditLog(f=>({...f,overtime_h:e.target.value}))}/>
+            </div>
+            <div className="form-group"><label className="form-label">運転</label>
+              <select className="form-input" value={editLog.drive_type} onChange={e=>setEditLog(f=>({...f,drive_type:e.target.value}))}>
+                <option>なし</option><option>片道</option><option>往復</option>
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">出張</label>
+              <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
+                <input type="checkbox" checked={editLog.is_trip} onChange={e=>setEditLog(f=>({...f,is_trip:e.target.checked}))} style={{width:16,height:16,accentColor:'var(--accent)'}}/>
+                <span style={{fontSize:13}}>出張あり</span>
+              </label>
+            </div>
+            <div className="form-group fg-full"><label className="form-label">メモ</label>
+              <input type="text" className="form-input" value={editLog.memo} onChange={e=>setEditLog(f=>({...f,memo:e.target.value}))}/>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:10,marginTop:18,justifyContent:'flex-end'}}>
+            <button className="btn btn-ghost" onClick={()=>setEditLog(null)}>キャンセル</button>
+            <button className="btn-submit" style={{padding:'8px 20px'}} onClick={saveEdit} disabled={editSaving}>{editSaving?'保存中…':'修正する'}</button>
+          </div>
+        </div>
+      </div>}
     </>
   );
 }
