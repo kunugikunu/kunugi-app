@@ -751,6 +751,7 @@ function SitesPage({data,token,reload,showToast}){
       contract:+editSite.contract||0,manday_price:+editSite.manday_price||0,
       one_way_km:+editSite.one_way_km||0,
       support_company_id:editSite.support_company_id||null,
+      note:editSite.note||'',
       start_date:editSite.start_date||'',end_date:editSite.end_date||'',status:editSite.status,
     },token);
     setSaving(false);
@@ -905,6 +906,9 @@ function SitesPage({data,token,reload,showToast}){
               <select className="form-input" value={editSite.status} onChange={e=>setEditSite(s=>({...s,status:e.target.value}))}>
                 <option>準備中</option><option>進行中</option><option>完了</option>
               </select>
+            </div>
+            <div className="form-group fg-full"><label className="form-label">備考</label>
+              <input className="form-input" placeholder="メモなど" value={editSite.note||''} onChange={e=>setEditSite(s=>({...s,note:e.target.value}))}/>
             </div>
           </div>
           <div style={{display:'flex',gap:10,marginTop:18,justifyContent:'flex-end'}}>
@@ -1274,7 +1278,7 @@ function SubconPage({data,token,reload,showToast}){
 function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
   const [ef,setEf]=useState({id:'',name:'',type:'従業員',daily_wage:'',trip_allowance:'',password:'',role:'employee'});
-  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',start_date:'',end_date:'',status:'進行中'});
+  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',note:'',start_date:'',end_date:'',status:'進行中'});
   const [cf,setCf]=useState({name:'',zip_code:'',address:'',tel:'',fax:'',contact:'',note:''});
   const [editCompany,setEditCompany]=useState(null);
   const [wageEdit,setWageEdit]=useState({empId:'',wage:'',trip:''});
@@ -1292,10 +1296,10 @@ function MasterPage({data,token,reload,showToast,user}){
 
   const addSite=async()=>{
     if(!sf.id||!sf.name){showToast('IDと現場名を入力してください','error');return;}
-    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,manday_price:+sf.manday_price||0,one_way_km:+sf.one_way_km||0,support_company_id:sf.support_company_id||null},token);setSaving(false);
+    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,manday_price:+sf.manday_price||0,one_way_km:+sf.one_way_km||0,support_company_id:sf.support_company_id||null,note:sf.note||''},token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('現場を追加しました ✓');reload();
-    setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',start_date:'',end_date:'',status:'進行中'});
+    setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',note:'',start_date:'',end_date:'',status:'進行中'});
   };
   const delSite=async(id)=>{await api.del(`/sites/${id}`,token);showToast('削除しました');reload();};
   const [editSiteMaster,setEditSiteMaster]=useState(null); // {id, new_id, name, ...}
@@ -1311,6 +1315,7 @@ function MasterPage({data,token,reload,showToast,user}){
       contract:+editSiteMaster.contract||0, manday_price:+editSiteMaster.manday_price||0,
       one_way_km:+editSiteMaster.one_way_km||0,
       support_company_id:editSiteMaster.support_company_id||null,
+      note:editSiteMaster.note||'',
       start_date:editSiteMaster.start_date||'', end_date:editSiteMaster.end_date||'',
       status:editSiteMaster.status,
     },token);
@@ -1434,6 +1439,9 @@ function MasterPage({data,token,reload,showToast,user}){
                   <option>準備中</option><option>進行中</option><option>完了</option>
                 </select>
               </div>
+              <div className="form-group fg-full"><label className="form-label">備考</label>
+                <input className="form-input" placeholder="メモなど" value={sf.note||''} onChange={e=>setSf(f=>({...f,note:e.target.value}))}/>
+              </div>
             </div>
             <div className="submit-bar"><span></span><button className="btn-submit" onClick={addSite} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
@@ -1511,6 +1519,9 @@ function MasterPage({data,token,reload,showToast,user}){
                 </div>
                 <div className="form-group"><label className="form-label">終了日（予定）</label>
                   <input type="date" className="form-input" value={editSiteMaster.end_date||''} onChange={e=>setEditSiteMaster(s=>({...s,end_date:e.target.value}))}/>
+                </div>
+                <div className="form-group fg-full"><label className="form-label">備考</label>
+                  <input className="form-input" placeholder="メモなど" value={editSiteMaster.note||''} onChange={e=>setEditSiteMaster(s=>({...s,note:e.target.value}))}/>
                 </div>
               </div>
               <div style={{display:'flex',gap:10,marginTop:18,justifyContent:'flex-end'}}>
