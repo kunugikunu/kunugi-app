@@ -118,6 +118,7 @@ def init_db():
     if "drive_type"     not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN drive_type TEXT DEFAULT 'なし'")
     if "drive_km"       not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN drive_km REAL DEFAULT 0")
     if "is_trip"        not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN is_trip INTEGER DEFAULT 0")
+    if "is_move"        not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN is_move INTEGER DEFAULT 0")
     if "employee_site_km" not in tables:
         cur.execute("""CREATE TABLE employee_site_km (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
