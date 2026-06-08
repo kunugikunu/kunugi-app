@@ -164,18 +164,16 @@ def row(r):  return dict(r) if r else None
 
 def calc_pay(log, daily_wage, trip_allowance):
     """1日報の給与計算
-    運転なし: 移動手当のみ（片道km × 14円）
-    片道/往復: 移動手当＋運転手当（4円/km）両方
+    運転（片道/往復）: 運転手当（4円/km）のみ
+    移動あり(is_move=1): 移動手当（14円/km）× 片道km
     """
     km = log.get("drive_km") or 0
     dt = log.get("drive_type") or "なし"
-    # 運転した実走行距離（片道/往復）
     driven_km = km * 2 if dt == "往復" else km if dt == "片道" else 0
-    # 移動手当用km: 運転なしでも片道kmは発生（現場に距離設定があれば）
-    move_km   = km if dt == "なし" and km > 0 else driven_km
+    move_km   = km if log.get("is_move") else 0
     ot_pay    = round((log.get("overtime_h") or 0) * OT_HOURLY)
-    drive_pay = round(driven_km * DRIVE_PER_KM)   # 運転した場合のみ
-    move_pay  = round(move_km   * MOVE_PER_KM)    # 常に発生（km>0なら）
+    drive_pay = round(driven_km * DRIVE_PER_KM)
+    move_pay  = round(move_km   * MOVE_PER_KM)
     trip_pay  = trip_allowance if log.get("is_trip") else 0
     base      = daily_wage if daily_wage > 0 else 0
     return {
@@ -207,7 +205,7 @@ def build_salary(emp, logs):
         km = l.get("drive_km") or 0
         dt = l.get("drive_type") or "なし"
         driven_km = km*2 if dt=="往復" else km if dt=="片道" else 0
-        move_km   = km if dt=="なし" and km > 0 else driven_km
+        move_km   = km if l.get("is_move") else 0
         drive_pay += round(driven_km * DRIVE_PER_KM)
         move_pay  += round(move_km   * MOVE_PER_KM)
     total_pay = base_pay + ot_pay + trip_pay + drive_pay + move_pay
@@ -482,12 +480,13 @@ class Handler(BaseHTTPRequestHandler):
                 if drive_km == 0:
                     r = con.execute("SELECT one_way_km FROM sites WHERE id=?", (b["siteId"],)).fetchone()
                     if r: drive_km = r["one_way_km"]
-                cur=con.execute("INSERT INTO daily_logs (date,emp_id,site_id,overtime_h,drive_type,drive_km,is_trip,memo) VALUES (?,?,?,?,?,?,?,?)",
+                cur=con.execute("INSERT INTO daily_logs (date,emp_id,site_id,overtime_h,drive_type,drive_km,is_trip,is_move,memo) VALUES (?,?,?,?,?,?,?,?,?)",
                     (b["date"],eid,b["siteId"],
                      float(b.get("overtime_h",0)),
                      b.get("drive_type","なし"),
                      drive_km,
                      1 if b.get("is_trip") else 0,
+                     1 if b.get("is_move") else 0,
                      b.get("memo","")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(cur.lastrowid,)).fetchone()),201)
@@ -539,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 elif parts[1]=="logs":
                     fields=[]; vals=[]
-                    for k in ["date","emp_id","site_id","overtime_h","drive_type","is_trip","memo"]:
+                    for k in ["date","emp_id","site_id","overtime_h","drive_type","is_trip","is_move","memo"]:
                         if k in b:
                             fields.append(f"{k}=?")
                             vals.append(float(b[k]) if k=="overtime_h" else int(b[k]) if k=="is_trip" else b[k])
