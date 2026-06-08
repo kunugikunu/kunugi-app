@@ -76,6 +76,16 @@ def init_db():
         memo TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS companies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        tel TEXT DEFAULT '',
+        fax TEXT DEFAULT '',
+        contact TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
     CREATE TABLE IF NOT EXISTS subcons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL, vendor TEXT NOT NULL, site_id TEXT NOT NULL,
@@ -95,7 +105,8 @@ def init_db():
     if "trip_allowance" not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN trip_allowance INTEGER DEFAULT 0")
     if "password"       not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN password TEXT DEFAULT ''")
     if "role"           not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
-    if "site_type"      not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
+    if "site_type"         not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
+    if "support_company_id" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN support_company_id INTEGER DEFAULT NULL")
     if "one_way_km"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN one_way_km REAL DEFAULT 0")
     if "manday_price"   not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
     if "start_date"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN start_date TEXT DEFAULT ''")
@@ -136,6 +147,7 @@ def init_db():
         cur.executemany("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)", [
             (td,"A社","S001",3,"人工",25000,"未払"),
         ])
+    # companies テーブルのサンプルは挿入しない（実データ保護）
     con.commit(); con.close()
     print(f"✅ DB初期化完了: {DB_PATH}")
 
@@ -269,7 +281,10 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/sites":
                 if not self.auth(): return
-                self.send_json(rows(con.execute("SELECT * FROM sites ORDER BY id").fetchall()))
+                r=con.execute("""SELECT s.*,c.name support_company_name
+                    FROM sites s LEFT JOIN companies c ON s.support_company_id=c.id
+                    ORDER BY s.id""").fetchall()
+                self.send_json(rows(r))
 
             elif path=="/api/emp_site_km":
                 s=self.auth()
@@ -307,6 +322,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path=="/api/subcons":
                 if not self.auth(mgr=True): return
                 self.send_json(rows(con.execute("SELECT sc.*,st.name site_name FROM subcons sc LEFT JOIN sites st ON sc.site_id=st.id ORDER BY sc.date DESC,sc.id DESC").fetchall()))
+
+            elif path=="/api/companies":
+                if not self.auth(): return
+                self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
             elif path=="/api/extra_works":
                 if not self.auth(mgr=True): return
@@ -437,10 +456,11 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/sites":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,support_company_id,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (b["id"],b["name"],b.get("client",""),b.get("site_type","請負"),
                      int(b.get("contract",0)),int(b.get("manday_price",0)),
                      float(b.get("one_way_km",0)),
+                     int(b["support_company_id"]) if b.get("support_company_id") else None,
                      b.get("start_date",""),b.get("end_date",""),b.get("status","準備中")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
@@ -497,10 +517,10 @@ class Handler(BaseHTTPRequestHandler):
 
                 elif parts[1]=="sites":
                     fields=[]; vals=[]
-                    for k in ["name","client","site_type","contract","manday_price","one_way_km","start_date","end_date","status"]:
+                    for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","start_date","end_date","status"]:
                         if k in b:
                             fields.append(f"{k}=?")
-                            vals.append(float(b[k]) if k in ["one_way_km"] else int(b[k]) if k in ["contract","manday_price"] else b[k])
+                            vals.append(float(b[k]) if k in ["one_way_km"] else int(b[k]) if k in ["contract","manday_price","support_company_id"] else b[k])
                     if fields:
                         vals.append(parts[2])
                         con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
@@ -530,6 +550,16 @@ class Handler(BaseHTTPRequestHandler):
                     con.commit()
                     self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(parts[2],)).fetchone()))
 
+                elif parts[1]=="companies":
+                    fields=[]; vals=[]
+                    for k in ["name","address","tel","fax","contact","note"]:
+                        if k in b: fields.append(f"{k}=?"); vals.append(b[k])
+                    if fields:
+                        vals.append(parts[2])
+                        con.execute(f"UPDATE companies SET {','.join(fields)} WHERE id=?",vals)
+                    con.commit()
+                    self.send_json(row(con.execute("SELECT * FROM companies WHERE id=?",(parts[2],)).fetchone()))
+
                 elif parts[1]=="employees":
                     fields=[]; vals=[]
                     if "password"       in b: fields.append("password=?");       vals.append(hash_pw(b["password"]))
@@ -555,7 +585,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if len(parts)==3:
                 tmap={"employees":"employees","sites":"sites","logs":"daily_logs",
-                      "subcons":"subcons","extra_works":"extra_works","emp_site_km":"employee_site_km"}
+                      "subcons":"subcons","extra_works":"extra_works","emp_site_km":"employee_site_km",
+                      "companies":"companies"}
                 tbl=tmap.get(parts[1])
                 if not tbl: self.send_json({"error":"Not found"},404); return
                 if parts[1]=="logs" and s["role"]!="manager":
