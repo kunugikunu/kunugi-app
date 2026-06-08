@@ -79,6 +79,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS companies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        zip_code TEXT DEFAULT '',
         address TEXT DEFAULT '',
         tel TEXT DEFAULT '',
         fax TEXT DEFAULT '',
@@ -107,6 +108,8 @@ def init_db():
     if "role"           not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
     if "site_type"         not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
     if "support_company_id" not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN support_company_id INTEGER DEFAULT NULL")
+    comp_cols = [r[1] for r in cur.execute("PRAGMA table_info(companies)")]
+    if "zip_code" not in comp_cols: cur.execute("ALTER TABLE companies ADD COLUMN zip_code TEXT DEFAULT ''")
     if "one_way_km"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN one_way_km REAL DEFAULT 0")
     if "manday_price"   not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
     if "start_date"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN start_date TEXT DEFAULT ''")
@@ -489,6 +492,13 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
+            elif path=="/api/companies":
+                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
+                cur=con.execute("INSERT INTO companies (name,zip_code,address,tel,fax,contact,note) VALUES (?,?,?,?,?,?,?)",
+                    (b["name"],b.get("zip_code",""),b.get("address",""),b.get("tel",""),b.get("fax",""),b.get("contact",""),b.get("note","")))
+                con.commit()
+                self.send_json(row(con.execute("SELECT * FROM companies WHERE id=?",(cur.lastrowid,)).fetchone()),201)
+
             elif path=="/api/subcons":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 cur=con.execute("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)",
@@ -552,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 elif parts[1]=="companies":
                     fields=[]; vals=[]
-                    for k in ["name","address","tel","fax","contact","note"]:
+                    for k in ["name","zip_code","address","tel","fax","contact","note"]:
                         if k in b: fields.append(f"{k}=?"); vals.append(b[k])
                     if fields:
                         vals.append(parts[2])
