@@ -297,9 +297,9 @@ function App(){
     setLoading(true);
     try{
       const isMgr=user.role==='manager';
-      const base=[api.get('/sites',token),api.get('/logs',token),api.get('/emp_site_km',token)];
+      const base=[api.get('/sites',token),api.get('/logs',token)];
       const mgr=isMgr?[api.get('/employees',token),api.get('/subcons',token),api.get('/extra_works',token),api.get('/summary',token)]:[];
-      const [sites,logs,emp_site_km,...rest]=await Promise.all([...base,...mgr]);
+      const [sites,logs,...rest]=await Promise.all([...base,...mgr]);
       const [employees,subcons,extra_works,summary]=isMgr?rest:[[],[],[],[]];
       setData({
         employees:Array.isArray(employees)?employees:[],
@@ -308,7 +308,7 @@ function App(){
         subcons:Array.isArray(subcons)?subcons:[],
         extra_works:Array.isArray(extra_works)?extra_works:[],
         summary:Array.isArray(summary)?summary:[],
-        emp_site_km:Array.isArray(emp_site_km)?emp_site_km:[],
+
         salary:[],
       });
     }catch(e){showToast('データ取得エラー','error');}
@@ -482,12 +482,8 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
 
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
-  // 現場×従業員の設定km取得
-  const getKm = (empId, siteId) => {
-    const rec = data.emp_site_km?.find(r=>r.emp_id===empId && r.site_id===siteId);
-    return rec ? rec.one_way_km : 0;
-  };
-  const km = getKm(form.empId, form.siteId);
+  // 現場の片道km取得（sites テーブルから）
+  const km = data.sites.find(s=>s.id===form.siteId)?.one_way_km || 0;
   const actualKm = form.drive_type==='往復' ? km*2 : form.drive_type==='片道' ? km : 0;
   const drivePay = Math.round(actualKm * 4);
   const movePay  = Math.round(actualKm * 14);
@@ -543,8 +539,8 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             <div className="form-group">
               <label className="form-label">
                 運転
-                {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>設定距離: {km}km</span>}
-                {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※距離未設定</span>}
+                {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>片道 {km}km</span>}
+                {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※現場に距離未設定</span>}
               </label>
               <select className="form-input" value={form.drive_type} onChange={e=>set('drive_type',e.target.value)}>
                 <option>なし</option><option>片道</option><option>往復</option>
@@ -576,7 +572,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             </div>
           </div>
           <div className="submit-bar">
-            <div className="submit-info">距離は設定→距離設定から変更できます</div>
+            <div className="submit-info">現場の距離は「設定→現場」から変更できます</div>
             <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'日報を送信 →'}</button>
           </div>
         </div>
@@ -619,6 +615,7 @@ function SitesPage({data,token,reload,showToast}){
     const res=await api.put(`/sites/${editSite.id}`,{
       name:editSite.name,client:editSite.client||'',site_type:editSite.site_type,
       contract:+editSite.contract||0,manday_price:+editSite.manday_price||0,
+      one_way_km:+editSite.one_way_km||0,
       start_date:editSite.start_date||'',end_date:editSite.end_date||'',status:editSite.status,
     },token);
     setSaving(false);
@@ -654,6 +651,7 @@ function SitesPage({data,token,reload,showToast}){
                 {(s.start_date||s.end_date)&&<span style={{fontSize:10,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>
                   {s.start_date||'?'} 〜 {s.end_date||'未定'}
                 </span>}
+                {s.one_way_km>0&&<span style={{fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace',background:'rgba(59,130,246,0.1)',padding:'1px 6px',borderRadius:4}}>片道 {s.one_way_km}km</span>}
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
                 {!isOen&&<button className="btn btn-ghost btn-sm" onClick={()=>{setExtraForm(s.id);setEf({date:today(),description:'',amount:''});}}>＋追加工事</button>}
@@ -749,6 +747,10 @@ function SitesPage({data,token,reload,showToast}){
                   <input type="number" className="form-input" value={editSite.contract||0} onChange={e=>setEditSite(s=>({...s,contract:e.target.value}))}/>
                </div>
             }
+            <div className="form-group"><label className="form-label">片道距離（km）</label>
+              <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
+                value={editSite.one_way_km||0} onChange={e=>setEditSite(s=>({...s,one_way_km:e.target.value}))}/>
+            </div>
             <div className="form-group"><label className="form-label">開始日</label>
               <input type="date" className="form-input" value={editSite.start_date||''} onChange={e=>setEditSite(s=>({...s,start_date:e.target.value}))}/>
             </div>
@@ -1119,8 +1121,7 @@ function SubconPage({data,token,reload,showToast}){
 function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
   const [ef,setEf]=useState({id:'',name:'',type:'従業員',daily_wage:'',trip_allowance:'',password:'',role:'employee'});
-  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',start_date:'',end_date:'',status:'進行中'});
-  const [kmForm,setKmForm]=useState({empId:'',siteId:'',km:''});
+  const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',start_date:'',end_date:'',status:'進行中'});
   const [wageEdit,setWageEdit]=useState({empId:'',wage:'',trip:''});
   const [pwChange,setPwChange]=useState({empId:'',newPw:''});
   const [saving,setSaving]=useState(false);
@@ -1136,20 +1137,13 @@ function MasterPage({data,token,reload,showToast,user}){
 
   const addSite=async()=>{
     if(!sf.id||!sf.name){showToast('IDと現場名を入力してください','error');return;}
-    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,manday_price:+sf.manday_price||0},token);setSaving(false);
+    setSaving(true);const res=await api.post('/sites',{...sf,contract:+sf.contract||0,manday_price:+sf.manday_price||0,one_way_km:+sf.one_way_km||0},token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('現場を追加しました ✓');reload();
-    setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',start_date:'',end_date:'',status:'進行中'});
+    setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',start_date:'',end_date:'',status:'進行中'});
   };
   const delSite=async(id)=>{await api.del(`/sites/${id}`,token);showToast('削除しました');reload();};
 
-  const saveKm=async()=>{
-    if(!kmForm.empId||!kmForm.siteId||kmForm.km===''){showToast('従業員・現場・kmを入力してください','error');return;}
-    const res=await api.post('/emp_site_km',{empId:kmForm.empId,siteId:kmForm.siteId,km:+kmForm.km},token);
-    if(res.error){showToast(res.error,'error');return;}
-    showToast('距離を設定しました ✓');setKmForm(f=>({...f,km:''}));reload();
-  };
-  const delKm=async(id)=>{await api.del(`/emp_site_km/${id}`,token);showToast('削除しました');reload();};
 
   const changeWage=async()=>{
     if(!wageEdit.empId){showToast('対象を選択してください','error');return;}
@@ -1173,7 +1167,7 @@ function MasterPage({data,token,reload,showToast,user}){
     <>
       <div className="topbar"><div><div className="page-title">マスタ設定</div><div className="page-sub">従業員・現場・給与・距離・パスワード</div></div></div>
       <div className="tabs">
-        {[['emp','従業員'],['site','現場'],['km','距離設定'],['wage','給与'],['pw','パスワード']].map(([k,l])=>(
+        {[['emp','従業員'],['site','現場'],['wage','給与'],['pw','パスワード']].map(([k,l])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={()=>setTab(k)}>{l}</button>
         ))}
       </div>
@@ -1232,6 +1226,10 @@ function MasterPage({data,token,reload,showToast,user}){
                 ?<div className="form-group fg-full"><label className="form-label">1人工単価（円）</label><input type="number" className="form-input" placeholder="25000" value={sf.manday_price} onChange={e=>setSf(f=>({...f,manday_price:e.target.value}))}/></div>
                 :<div className="form-group fg-full"><label className="form-label">契約金額（円）</label><input type="number" className="form-input" placeholder="5000000" value={sf.contract} onChange={e=>setSf(f=>({...f,contract:e.target.value}))}/></div>
               }
+              <div className="form-group"><label className="form-label">片道距離（km）</label>
+                <input type="number" className="form-input" placeholder="20" min="0" step="0.5"
+                  value={sf.one_way_km||''} onChange={e=>setSf(f=>({...f,one_way_km:e.target.value}))}/>
+              </div>
               <div className="form-group"><label className="form-label">開始日</label><input type="date" className="form-input" value={sf.start_date} onChange={e=>setSf(f=>({...f,start_date:e.target.value}))}/></div>
               <div className="form-group"><label className="form-label">終了日（予定）</label><input type="date" className="form-input" value={sf.end_date} onChange={e=>setSf(f=>({...f,end_date:e.target.value}))}/></div>
               <div className="form-group fg-full"><label className="form-label">状況</label>
@@ -1245,13 +1243,14 @@ function MasterPage({data,token,reload,showToast,user}){
           <div className="card">
             <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細は「現場集計」→「編集」から</span></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額</th><th>状況</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額</th><th>片道km</th><th>状況</th><th></th></tr></thead>
               <tbody>{data.sites.map(s=>(
                 <tr key={s.id}>
                   <td className="mono">{s.id}</td><td>{s.name}</td>
                   <td style={{color:'var(--mist)'}}>{s.client}</td>
                   <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
                   <td className="mono">{s.site_type==='応援'?fmt(s.manday_price)+'/人工':fmt(s.contract)}</td>
+                  <td className="mono" style={{color:'var(--blue)'}}>{s.one_way_km>0?s.one_way_km+'km':'—'}</td>
                   <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
                   <td><button className="btn btn-danger btn-sm" onClick={()=>delSite(s.id)}>削除</button></td>
                 </tr>
@@ -1260,49 +1259,6 @@ function MasterPage({data,token,reload,showToast,user}){
           </div>
         </>}
 
-        {/* 距離設定タブ */}
-        {tab==='km'&&<>
-          <div className="card">
-            <div className="card-header"><div className="card-title">距離設定</div><span className="badge badge-blue">従業員×現場</span></div>
-            <div style={{padding:'6px 18px 4px',fontSize:11,color:'var(--mist)'}}>片道kmを設定。日報で片道/往復を選ぶと自動的にこの距離が使用されます。</div>
-            <div className="form-grid">
-              <div className="form-group"><label className="form-label">従業員</label>
-                <select className="form-input" value={kmForm.empId} onChange={e=>setKmForm(f=>({...f,empId:e.target.value}))}>
-                  <option value="">選択してください</option>
-                  {data.employees.map(e=><option key={e.id} value={e.id}>{e.name}（{e.id}）</option>)}
-                </select>
-              </div>
-              <div className="form-group"><label className="form-label">現場</label>
-                <select className="form-input" value={kmForm.siteId} onChange={e=>setKmForm(f=>({...f,siteId:e.target.value}))}>
-                  <option value="">選択してください</option>
-                  {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
-                </select>
-              </div>
-              <div className="form-group"><label className="form-label">片道距離（km）</label>
-                <input type="number" className="form-input" placeholder="20" min="0" step="0.5"
-                  value={kmForm.km} onChange={e=>setKmForm(f=>({...f,km:e.target.value}))}/>
-              </div>
-            </div>
-            <div className="submit-bar"><span></span><button className="btn-submit" onClick={saveKm}>設定する</button></div>
-          </div>
-          <div className="card">
-            <div className="card-header"><div className="card-title">距離設定一覧</div></div>
-            {(data.emp_site_km||[]).length===0
-              ?<div className="empty"><div className="empty-icon">📍</div>距離が設定されていません</div>
-              :<div className="table-wrap"><table>
-                <thead><tr><th>従業員</th><th>現場</th><th>片道km</th><th>往復km</th><th></th></tr></thead>
-                <tbody>{(data.emp_site_km||[]).map(r=>(
-                  <tr key={r.id}>
-                    <td>{r.emp_name||r.emp_id}</td>
-                    <td><span className="badge badge-orange">{r.site_id}</span> {r.site_name||''}</td>
-                    <td className="mono" style={{color:'var(--blue)'}}>{r.one_way_km}km</td>
-                    <td className="mono" style={{color:'var(--mist)'}}>{r.one_way_km*2}km</td>
-                    <td><button className="btn btn-danger btn-sm" onClick={()=>delKm(r.id)}>削除</button></td>
-                  </tr>
-                ))}</tbody>
-              </table></div>}
-          </div>
-        </>}
 
         {/* 給与タブ */}
         {tab==='wage'&&<>
