@@ -7,10 +7,14 @@ from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
 PORT    = int(os.environ.get("PORT", 8000))
-# /app にVolumeがマウントされている（Railway設定確認済み）
-# 環境変数で上書き可能、なければ /app/kukito.db を使用
-_vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "/app")
-DB_PATH = _vol.rstrip("/") + "/kukito.db"
+# DBパス: 環境変数 > /app(Volume確認済み) > スクリプトと同じ場所
+_vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
+if _vol:
+    DB_PATH = _vol.rstrip("/") + "/kukito.db"
+elif os.path.isdir("/app"):
+    DB_PATH = "/app/kukito.db"
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kukito.db")
 
 SESSIONS    = {}
 SESSION_TTL = 60 * 60 * 24 * 7
