@@ -449,14 +449,15 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
           <div className="card-header"><div className="card-title">最近の日報</div><span className="badge badge-blue">{data.logs.length}件</span></div>
           {data.logs.length===0?<div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
           :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>従業員</th><th>現場</th><th>残業</th><th>運転</th></tr></thead>
+            <thead><tr><th>日付</th><th>従業員</th><th>現場</th><th>残業</th><th>運転</th><th>移動</th></tr></thead>
             <tbody>{data.logs.slice(0,8).map(l=>(
               <tr key={l.id}>
                 <td className="mono">{l.date}</td>
                 <td>{l.emp_name||l.emp_id}</td>
                 <td><span className="badge badge-orange">{l.site_id}</span></td>
                 <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
-                <td style={{fontSize:11,color:'var(--mist)'}}>{l.drive_type!=='なし'?`${l.drive_type} ${l.drive_km}km`:'—'}</td>
+                <td style={{fontSize:11,color:'var(--blue)'}}>{l.drive_type!=='なし'?`${l.drive_type} ${l.drive_type==='往復'?(l.drive_km||0)*2:(l.drive_km||0)}km`:'—'}</td>
+                <td style={{fontSize:11,color:'var(--green)'}}>{l.is_move?(l.drive_km||0)+'km':'—'}</td>
               </tr>
             ))}</tbody>
           </table></div>}
@@ -472,7 +473,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
   const empOpts = isMgr ? data.employees : [{id:user.empId,name:user.name}];
   const [form,setForm] = useState({
     date:today(), empId:user.empId, siteId:data.sites[0]?.id||'',
-    overtime_h:'', drive_type:'なし', is_trip:false, memo:''
+    overtime_h:'', drive_type:'なし', is_move:false, is_trip:false, memo:''
   });
   const [saving,setSaving] = useState(false);
 
@@ -484,10 +485,10 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
 
   // 現場の片道km取得（sites テーブルから）
   const km = data.sites.find(s=>s.id===form.siteId)?.one_way_km || 0;
-  // 運転した実走行距離（片道/往復）
+  // 運転手当: 片道/往復の場合のみ
   const drivenKm = form.drive_type==='往復' ? km*2 : form.drive_type==='片道' ? km : 0;
-  // 移動手当km: 運転なしでも現場kmがあれば片道分発生
-  const moveKm   = form.drive_type==='なし' ? km : drivenKm;
+  // 移動手当: is_move=trueの場合のみ片道km×14円
+  const moveKm   = form.is_move ? km : 0;
   const drivePay = Math.round(drivenKm * 4);
   const movePay  = Math.round(moveKm * 14);
   const otPay    = Math.round((parseFloat(form.overtime_h)||0) * 2100);
@@ -501,19 +502,20 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
       ...form,
       overtime_h: parseFloat(form.overtime_h)||0,
       drive_km: km,
+      is_move: form.is_move ? 1 : 0,
     },token);
     setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('日報を保存しました ✓');reload();
-    setForm(f=>({...f,overtime_h:'',drive_type:'なし',is_trip:false,memo:''}));
+    setForm(f=>({...f,overtime_h:'',drive_type:'なし',is_move:false,is_trip:false,memo:''}));
   };
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
   const [editLog,setEditLog]=useState(null);
   const [editSaving,setEditSaving]=useState(false);
-  const openEdit=(l)=>setEditLog({id:l.id,date:l.date,empId:l.emp_id,siteId:l.site_id,overtime_h:l.overtime_h||0,drive_type:l.drive_type||'なし',is_trip:!!l.is_trip,memo:l.memo||''});
+  const openEdit=(l)=>setEditLog({id:l.id,date:l.date,empId:l.emp_id,siteId:l.site_id,overtime_h:l.overtime_h||0,drive_type:l.drive_type||'なし',is_trip:!!l.is_trip,is_move:!!l.is_move,memo:l.memo||''});
   const saveEdit=async()=>{
     setEditSaving(true);
-    const res=await api.put(`/logs/${editLog.id}`,{date:editLog.date,emp_id:editLog.empId,site_id:editLog.siteId,overtime_h:parseFloat(editLog.overtime_h)||0,drive_type:editLog.drive_type,is_trip:editLog.is_trip?1:0,memo:editLog.memo},token);
+    const res=await api.put(`/logs/${editLog.id}`,{date:editLog.date,emp_id:editLog.empId,site_id:editLog.siteId,overtime_h:parseFloat(editLog.overtime_h)||0,drive_type:editLog.drive_type,is_trip:editLog.is_trip?1:0,is_move:editLog.is_move?1:0,memo:editLog.memo},token);
     setEditSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('日報を修正しました ✓');setEditLog(null);reload();
@@ -561,7 +563,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               </div>
               <div className="form-group">
                 <label className="form-label">
-                  運転
+                  運転（運転手当 4円/km）
                   {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>片道 {km}km</span>}
                   {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※現場に距離未設定</span>}
                 </label>
@@ -579,8 +581,20 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
                   </span>
                 </label>
               </div>
-              {(km>0||otPay>0||tripPay>0) && <div className="form-group fg-full">
-                <label className="form-label">手当プレビュー（{moveKm>0?`${form.drive_type==='なし'?'移動':form.drive_type} ${moveKm}km`:''}）</label>
+              <div className="form-group">
+                <label className="form-label">移動（移動手当 14円/km）
+                  {km>0&&form.is_move&&<span style={{marginLeft:6,fontSize:10,color:'var(--green)',fontFamily:'DM Mono,monospace'}}>片道 {km}km</span>}
+                </label>
+                <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
+                  <input type="checkbox" checked={form.is_move} onChange={e=>set('is_move',e.target.checked)}
+                    style={{width:16,height:16,accentColor:'var(--green)'}}/>
+                  <span style={{fontSize:13}}>移動あり
+                    {km>0&&form.is_move&&<span style={{marginLeft:6,fontSize:11,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>(+{fmt(movePay)})</span>}
+                  </span>
+                </label>
+              </div>
+              {(drivenKm>0||moveKm>0||otPay>0||tripPay>0) && <div className="form-group fg-full">
+                <label className="form-label">手当プレビュー（{drivenKm>0?`運転${form.drive_type} ${drivenKm}km `:''}{moveKm>0?`移動${moveKm}km`:''}）</label>
                 <div className="calc-box">
                   {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
                   {tripPay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--accent)'}}>{fmt(tripPay)}</div><div className="calc-lbl">出張手当</div></div>}
@@ -605,16 +619,17 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
           {data.logs.length===0
             ? <div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
             : <div className="table-wrap"><table>
-              <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>出張</th><th>メモ</th><th></th></tr></thead>
+              <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>移動</th><th>出張</th><th>メモ</th><th></th></tr></thead>
               <tbody>{data.logs.map(l=>{
                 const dkm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
-                const mkm = l.drive_type==='なし'?(l.drive_km||0):dkm;
+                const mkm = l.is_move ? (l.drive_km||0) : 0;
                 return <tr key={l.id}>
                   <td className="mono">{l.date}</td>
                   <td>{l.emp_name||l.emp_id}</td>
                   <td><span className="badge badge-orange">{l.site_id}</span></td>
                   <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
-                  <td style={{fontSize:11,color:'var(--blue)'}}>{mkm>0?`${l.drive_type==='なし'?'移動':l.drive_type} ${mkm}km`:'—'}</td>
+                  <td style={{fontSize:11,color:'var(--blue)'}}>{dkm>0?`${l.drive_type} ${dkm}km`:'—'}</td>
+                  <td style={{fontSize:11,color:'var(--green)'}}>{mkm>0?`${mkm}km`:'—'}</td>
                   <td>{l.is_trip?<span className="badge badge-orange">出張</span>:'—'}</td>
                   <td style={{color:'var(--mist)',fontSize:11}}>{l.memo||'—'}</td>
                   <td style={{display:"flex",gap:4}}>{isMgr&&<button className="btn btn-ghost btn-sm" onClick={()=>openEdit(l)}>修正</button>}<button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
@@ -653,6 +668,12 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
                 <input type="checkbox" checked={editLog.is_trip} onChange={e=>setEditLog(f=>({...f,is_trip:e.target.checked}))} style={{width:16,height:16,accentColor:'var(--accent)'}}/>
                 <span style={{fontSize:13}}>出張あり</span>
+              </label>
+            </div>
+            <div className="form-group"><label className="form-label">移動</label>
+              <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
+                <input type="checkbox" checked={!!editLog.is_move} onChange={e=>setEditLog(f=>({...f,is_move:e.target.checked}))} style={{width:16,height:16,accentColor:'var(--green)'}}/>
+                <span style={{fontSize:13}}>移動あり（14円/km）</span>
               </label>
             </div>
             <div className="form-group fg-full"><label className="form-label">メモ</label>
