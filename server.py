@@ -115,8 +115,8 @@ def init_db():
     if cur.execute("SELECT COUNT(*) FROM employees").fetchone()[0] == 0:
         cur.executemany("INSERT INTO employees (id,name,type,daily_wage,trip_allowance,password,role) VALUES (?,?,?,?,?,?,?)", [
             ("MGR",  "㓛刀 代表",  "従業員", 0,     0,    hash_pw("admin1234"), "manager"),
-            ("E001", "田中 太郎",  "従業員", 15000, 3500, hash_pw("tanaka123"), "employee"),
-            ("E002", "山田 花子",  "従業員", 14000, 3500, hash_pw("yamada123"), "employee"),
+            ("E001", "田中 太郎",  "従業員", 15000, 3000, hash_pw("tanaka123"), "employee"),
+            ("E002", "山田 花子",  "従業員", 14000, 3000, hash_pw("yamada123"), "employee"),
         ])
         cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?)", [
             ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    20,"2025-01-10","2025-06-30","進行中"),
@@ -506,6 +506,29 @@ class Handler(BaseHTTPRequestHandler):
                         con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
                     con.commit()
                     self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(parts[2],)).fetchone()))
+
+                elif parts[1]=="logs":
+                    fields=[]; vals=[]
+                    for k in ["date","emp_id","site_id","overtime_h","drive_type","is_trip","memo"]:
+                        if k in b:
+                            fields.append(f"{k}=?")
+                            vals.append(float(b[k]) if k=="overtime_h" else int(b[k]) if k=="is_trip" else b[k])
+                    # drive_km は site から再取得
+                    if "site_id" in b or "drive_type" in b:
+                        sid = b.get("site_id") or con.execute("SELECT site_id FROM daily_logs WHERE id=?",(parts[2],)).fetchone()["site_id"]
+                        dt  = b.get("drive_type") or con.execute("SELECT drive_type FROM daily_logs WHERE id=?",(parts[2],)).fetchone()["drive_type"]
+                        r   = con.execute("SELECT one_way_km FROM sites WHERE id=?",(sid,)).fetchone()
+                        km  = r["one_way_km"] if r else 0
+                        fields.append("drive_km=?"); vals.append(km)
+                        fields.append("site_id=?");  vals.append(sid)
+                    if fields:
+                        # 重複除去
+                        seen={}
+                        for f,v in zip(fields,vals): seen[f]=v
+                        vals2=list(seen.values())+[parts[2]]
+                        con.execute(f"UPDATE daily_logs SET {','.join(seen.keys())} WHERE id=?",vals2)
+                    con.commit()
+                    self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(parts[2],)).fetchone()))
 
                 elif parts[1]=="employees":
                     fields=[]; vals=[]
