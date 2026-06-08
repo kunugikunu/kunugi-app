@@ -56,6 +56,7 @@ def init_db():
         one_way_km REAL DEFAULT 0,
         start_date TEXT DEFAULT '',
         end_date TEXT DEFAULT '',
+        note TEXT DEFAULT '',
         status TEXT DEFAULT '準備中',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -111,6 +112,7 @@ def init_db():
     comp_cols = [r[1] for r in cur.execute("PRAGMA table_info(companies)")]
     if "zip_code" not in comp_cols: cur.execute("ALTER TABLE companies ADD COLUMN zip_code TEXT DEFAULT ''")
     if "one_way_km"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN one_way_km REAL DEFAULT 0")
+    if "note"           not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN note TEXT DEFAULT ''")
     if "manday_price"   not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
     if "start_date"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN start_date TEXT DEFAULT ''")
     if "end_date"       not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN end_date TEXT DEFAULT ''")
@@ -134,10 +136,10 @@ def init_db():
             ("E001", "田中 太郎",  "従業員", 15000, 3000, hash_pw("tanaka123"), "employee"),
             ("E002", "山田 花子",  "従業員", 14000, 3000, hash_pw("yamada123"), "employee"),
         ])
-        cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?)", [
-            ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    20,"2025-01-10","2025-06-30","進行中"),
-            ("S002","△△マンション改修","△△不動産", "請負",3000000,0,    35,"2025-02-01","2025-05-31","進行中"),
-            ("S003","□□応援工事",      "□□建設",   "応援",0,      25000,0,"2025-03-01","",          "進行中"),
+        cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,note,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
+            ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    20,"","2025-01-10","2025-06-30","進行中"),
+            ("S002","△△マンション改修","△△不動産", "請負",3000000,0,    35,"","2025-02-01","2025-05-31","進行中"),
+            ("S003","□□応援工事",      "□□建設",   "応援",0,      25000,0,"","2025-03-01","",          "進行中"),
         ])
         cur.executemany("INSERT INTO employee_site_km (emp_id,site_id,one_way_km) VALUES (?,?,?)", [
             ("E001","S001",20), ("E001","S002",35),
@@ -461,11 +463,12 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/sites":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,support_company_id,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,support_company_id,note,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (b["id"],b["name"],b.get("client",""),b.get("site_type","請負"),
                      int(b.get("contract",0)),int(b.get("manday_price",0)),
                      float(b.get("one_way_km",0)),
                      int(b["support_company_id"]) if b.get("support_company_id") else None,
+                     b.get("note",""),
                      b.get("start_date",""),b.get("end_date",""),b.get("status","準備中")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
@@ -539,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
                         orig = row(con.execute("SELECT * FROM sites WHERE id=?",(old_id,)).fetchone())
                         if not orig: self.send_json({"error":"現場が見つかりません"},404); return
                         # 更新フィールドをorigに上書き
-                        for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","start_date","end_date","status"]:
+                        for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","note","start_date","end_date","status"]:
                             if k in b: orig[k] = float(b[k]) if k=="one_way_km" else int(b[k]) if k in ["contract","manday_price"] else (int(b[k]) if k=="support_company_id" and b[k] else None if k=="support_company_id" else b[k])
                         con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,support_company_id,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                             (new_id,orig["name"],orig.get("client",""),orig.get("site_type","請負"),
