@@ -53,6 +53,7 @@ def init_db():
         site_type TEXT DEFAULT '請負',
         contract INTEGER DEFAULT 0,
         manday_price INTEGER DEFAULT 0,
+        one_way_km REAL DEFAULT 0,
         start_date TEXT DEFAULT '',
         end_date TEXT DEFAULT '',
         status TEXT DEFAULT '準備中',
@@ -95,6 +96,7 @@ def init_db():
     if "password"       not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN password TEXT DEFAULT ''")
     if "role"           not in emp_cols:  cur.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
     if "site_type"      not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT '請負'")
+    if "one_way_km"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN one_way_km REAL DEFAULT 0")
     if "manday_price"   not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN manday_price INTEGER DEFAULT 0")
     if "start_date"     not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN start_date TEXT DEFAULT ''")
     if "end_date"       not in site_cols: cur.execute("ALTER TABLE sites ADD COLUMN end_date TEXT DEFAULT ''")
@@ -116,10 +118,10 @@ def init_db():
             ("E001", "田中 太郎",  "従業員", 15000, 3500, hash_pw("tanaka123"), "employee"),
             ("E002", "山田 花子",  "従業員", 14000, 3500, hash_pw("yamada123"), "employee"),
         ])
-        cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?)", [
-            ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    "2025-01-10","2025-06-30","進行中"),
-            ("S002","△△マンション改修","△△不動産", "請負",3000000,0,    "2025-02-01","2025-05-31","進行中"),
-            ("S003","□□応援工事",      "□□建設",   "応援",0,      25000,"2025-03-01","",          "進行中"),
+        cur.executemany("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?)", [
+            ("S001","〇〇ビル新築工事","〇〇建設",  "請負",5000000,0,    20,"2025-01-10","2025-06-30","進行中"),
+            ("S002","△△マンション改修","△△不動産", "請負",3000000,0,    35,"2025-02-01","2025-05-31","進行中"),
+            ("S003","□□応援工事",      "□□建設",   "応援",0,      25000,0,"2025-03-01","",          "進行中"),
         ])
         cur.executemany("INSERT INTO employee_site_km (emp_id,site_id,one_way_km) VALUES (?,?,?)", [
             ("E001","S001",20), ("E001","S002",35),
@@ -427,9 +429,10 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/sites":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (b["id"],b["name"],b.get("client",""),b.get("site_type","請負"),
                      int(b.get("contract",0)),int(b.get("manday_price",0)),
+                     float(b.get("one_way_km",0)),
                      b.get("start_date",""),b.get("end_date",""),b.get("status","準備中")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
@@ -443,11 +446,10 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/logs":
                 eid = b.get("empId",s["emp_id"]) if s["role"]=="manager" else s["emp_id"]
-                # km は employee_site_km から自動取得（送られてこない場合）
+                # km は sites テーブルから自動取得
                 drive_km = float(b.get("drive_km", 0))
                 if drive_km == 0 and b.get("drive_type","なし") != "なし":
-                    r = con.execute("SELECT one_way_km FROM employee_site_km WHERE emp_id=? AND site_id=?",
-                        (eid, b["siteId"])).fetchone()
+                    r = con.execute("SELECT one_way_km FROM sites WHERE id=?", (b["siteId"],)).fetchone()
                     if r: drive_km = r["one_way_km"]
                 cur=con.execute("INSERT INTO daily_logs (date,emp_id,site_id,overtime_h,drive_type,drive_km,is_trip,memo) VALUES (?,?,?,?,?,?,?,?)",
                     (b["date"],eid,b["siteId"],
@@ -487,10 +489,10 @@ class Handler(BaseHTTPRequestHandler):
 
                 elif parts[1]=="sites":
                     fields=[]; vals=[]
-                    for k in ["name","client","site_type","contract","manday_price","start_date","end_date","status"]:
+                    for k in ["name","client","site_type","contract","manday_price","one_way_km","start_date","end_date","status"]:
                         if k in b:
                             fields.append(f"{k}=?")
-                            vals.append(int(b[k]) if k in ["contract","manday_price"] else b[k])
+                            vals.append(float(b[k]) if k in ["one_way_km"] else int(b[k]) if k in ["contract","manday_price"] else b[k])
                     if fields:
                         vals.append(parts[2])
                         con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
