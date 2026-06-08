@@ -812,7 +812,7 @@ function SitesPage({data,token,reload,showToast}){
                 <div className="form-group"><label className="form-label">1人工単価（円）</label>
                   <input type="number" className="form-input" value={editSite.manday_price||0} onChange={e=>setEditSite(s=>({...s,manday_price:e.target.value}))}/>
                 </div>
-                <div className="form-group"><label className="form-label">応援先</label>
+                <div className="form-group"><label className="form-label">取引先</label>
                   <select className="form-input" value={editSite.support_company_id||''} onChange={e=>setEditSite(s=>({...s,support_company_id:e.target.value}))}>
                     <option value="">選択してください</option>
                     {(data.companies||[]).map(cp=><option key={cp.id} value={cp.id}>{cp.name}</option>)}
@@ -1145,7 +1145,16 @@ function SubconPage({data,token,reload,showToast}){
           <div className="card-header"><div className="card-title">外注追加</div></div>
           <div className="form-grid">
             <div className="form-group"><label className="form-label">日付</label><input type="date" className="form-input" value={form.date} onChange={e=>set('date',e.target.value)}/></div>
-            <div className="form-group"><label className="form-label">外注先</label><input className="form-input" placeholder="A社" value={form.vendor} onChange={e=>set('vendor',e.target.value)}/></div>
+            <div className="form-group"><label className="form-label">外注先</label>
+              <div style={{display:'flex',gap:6}}>
+                <input className="form-input" placeholder="A社" value={form.vendor} onChange={e=>set('vendor',e.target.value)}/>
+                {(data.companies||[]).length>0&&<select className="form-input" style={{width:'auto',minWidth:120}}
+                  onChange={e=>{if(e.target.value)set('vendor',e.target.value);e.target.value='';}}>
+                  <option value="">取引先から選択</option>
+                  {(data.companies||[]).map(cp=><option key={cp.id} value={cp.name}>{cp.name}</option>)}
+                </select>}
+              </div>
+            </div>
             <div className="form-group fg-full"><label className="form-label">現場</label>
               <select className="form-input" value={form.siteId} onChange={e=>set('siteId',e.target.value)}>
                 {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
@@ -1198,7 +1207,7 @@ function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
   const [ef,setEf]=useState({id:'',name:'',type:'従業員',daily_wage:'',trip_allowance:'',password:'',role:'employee'});
   const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',start_date:'',end_date:'',status:'進行中'});
-  const [cf,setCf]=useState({name:'',address:'',tel:'',fax:'',contact:'',note:''});
+  const [cf,setCf]=useState({name:'',zip_code:'',address:'',tel:'',fax:'',contact:'',note:''});
   const [editCompany,setEditCompany]=useState(null);
   const [wageEdit,setWageEdit]=useState({empId:'',wage:'',trip:''});
   const [pwChange,setPwChange]=useState({empId:'',newPw:''});
@@ -1226,8 +1235,8 @@ function MasterPage({data,token,reload,showToast,user}){
     if(!cf.name){showToast('会社名を入力してください','error');return;}
     setSaving(true);const res=await api.post('/companies',cf,token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
-    showToast('応援先を追加しました ✓');reload();
-    setCf({name:'',address:'',tel:'',fax:'',contact:'',note:''});
+    showToast('取引先を追加しました ✓');reload();
+    setCf({name:'',zip_code:'',address:'',tel:'',fax:'',contact:'',note:''});
   };
   const saveEditCompany=async()=>{
     setSaving(true);const res=await api.put(`/companies/${editCompany.id}`,editCompany,token);setSaving(false);
@@ -1259,7 +1268,7 @@ function MasterPage({data,token,reload,showToast,user}){
     <>
       <div className="topbar"><div><div className="page-title">マスタ設定</div><div className="page-sub">従業員・現場・給与・距離・パスワード</div></div></div>
       <div className="tabs">
-        {[['emp','従業員'],['site','現場'],['company','応援先名簿'],['wage','給与'],['pw','パスワード']].map(([k,l])=>(
+        {[['emp','従業員'],['site','現場'],['company','取引先名簿'],['wage','給与'],['pw','パスワード']].map(([k,l])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={()=>setTab(k)}>{l}</button>
         ))}
       </div>
@@ -1317,7 +1326,7 @@ function MasterPage({data,token,reload,showToast,user}){
               {sf.site_type==='応援'
                 ?<>
                   <div className="form-group"><label className="form-label">1人工単価（円）</label><input type="number" className="form-input" placeholder="25000" value={sf.manday_price} onChange={e=>setSf(f=>({...f,manday_price:e.target.value}))}/></div>
-                  <div className="form-group"><label className="form-label">応援先</label>
+                  <div className="form-group"><label className="form-label">取引先</label>
                     <select className="form-input" value={sf.support_company_id||''} onChange={e=>setSf(f=>({...f,support_company_id:e.target.value}))}>
                       <option value="">選択してください</option>
                       {(data.companies||[]).map(cp=><option key={cp.id} value={cp.id}>{cp.name}</option>)}
@@ -1343,7 +1352,7 @@ function MasterPage({data,token,reload,showToast,user}){
           <div className="card">
             <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細は「現場集計」→「編集」から</span></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>現場名</th><th>元請/応援先</th><th>タイプ</th><th>金額</th><th>片道km</th><th>状況</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>現場名</th><th>元請/取引先</th><th>タイプ</th><th>金額</th><th>片道km</th><th>状況</th><th></th></tr></thead>
               <tbody>{data.sites.map(s=>(
                 <tr key={s.id}>
                   <td className="mono">{s.id}</td><td>{s.name}</td>
@@ -1360,16 +1369,47 @@ function MasterPage({data,token,reload,showToast,user}){
         </>}
 
 
-        {/* 応援先名簿タブ */}
+        {/* 取引先名簿タブ */}
         {tab==='company'&&<>
           <div className="card">
-            <div className="card-header"><div className="card-title">応援先を追加</div></div>
+            <div className="card-header"><div className="card-title">取引先を追加</div></div>
             <div className="form-grid">
               <div className="form-group fg-full"><label className="form-label">会社名 *</label>
                 <input className="form-input" placeholder="〇〇建設株式会社" value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))}/>
               </div>
+              <div className="form-group">
+                <label className="form-label">郵便番号</label>
+                <div style={{display:'flex',gap:6}}>
+                  <input className="form-input" placeholder="400-0000" value={cf.zip_code||''} maxLength={8}
+                    onChange={e=>setCf(f=>({...f,zip_code:e.target.value}))}
+                    onBlur={async e=>{
+                      const z=e.target.value.replace(/[^0-9]/g,'');
+                      if(z.length===7){
+                        try{
+                          const r=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
+                          const d=await r.json();
+                          if(d.results){
+                            const a=d.results[0];
+                            setCf(f=>({...f,address:a.address1+a.address2+a.address3}));
+                          }
+                        }catch(e){}
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-ghost btn-sm" style={{whiteSpace:'nowrap'}} onClick={async()=>{
+                    const z=(cf.zip_code||'').replace(/[^0-9]/g,'');
+                    if(z.length!==7){showToast('7桁の郵便番号を入力してください','error');return;}
+                    try{
+                      const r=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
+                      const d=await r.json();
+                      if(d.results){const a=d.results[0];setCf(f=>({...f,address:a.address1+a.address2+a.address3}));showToast('住所を自動入力しました ✓');}
+                      else{showToast('住所が見つかりませんでした','error');}
+                    }catch(e){showToast('住所取得に失敗しました','error');}
+                  }}>住所検索</button>
+                </div>
+              </div>
               <div className="form-group fg-full"><label className="form-label">住所</label>
-                <input className="form-input" placeholder="〒000-0000 〇〇県〇〇市..." value={cf.address} onChange={e=>setCf(f=>({...f,address:e.target.value}))}/>
+                <input className="form-input" placeholder="〇〇県〇〇市..." value={cf.address||''} onChange={e=>setCf(f=>({...f,address:e.target.value}))}/>
               </div>
               <div className="form-group"><label className="form-label">電話番号</label>
                 <input className="form-input" placeholder="000-0000-0000" value={cf.tel} onChange={e=>setCf(f=>({...f,tel:e.target.value}))}/>
@@ -1387,15 +1427,15 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="submit-bar"><span></span><button className="btn-submit" onClick={addCompany} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">応援先一覧</div><span className="badge badge-purple">{(data.companies||[]).length}社</span></div>
+            <div className="card-header"><div className="card-title">取引先一覧</div><span className="badge badge-purple">{(data.companies||[]).length}社</span></div>
             {(data.companies||[]).length===0
-              ?<div className="empty"><div className="empty-icon">🏢</div>応援先が登録されていません</div>
+              ?<div className="empty"><div className="empty-icon">🏢</div>取引先が登録されていません</div>
               :(data.companies||[]).map(cp=>(
                 <div key={cp.id} style={{padding:'14px 18px',borderBottom:'1px solid var(--border)'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                     <div>
                       <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{cp.name}</div>
-                      {cp.address&&<div style={{fontSize:11,color:'var(--mist)',marginBottom:2}}>📍 {cp.address}</div>}
+                      {(cp.zip_code||cp.address)&&<div style={{fontSize:11,color:'var(--mist)',marginBottom:2}}>📍 {cp.zip_code?`〒${cp.zip_code} `:''}{cp.address}</div>}
                       <div style={{display:'flex',gap:16,fontSize:11,color:'var(--mist)'}}>
                         {cp.tel&&<span>📞 {cp.tel}</span>}
                         {cp.fax&&<span>📠 {cp.fax}</span>}
@@ -1415,10 +1455,27 @@ function MasterPage({data,token,reload,showToast,user}){
           {/* 編集モーダル */}
           {editCompany&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
             <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:480,padding:24,margin:'auto'}}>
-              <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>応援先を編集</div>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:18}}>取引先を編集</div>
               <div className="form-grid" style={{padding:0}}>
                 <div className="form-group fg-full"><label className="form-label">会社名</label>
                   <input className="form-input" value={editCompany.name} onChange={e=>setEditCompany(f=>({...f,name:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">郵便番号</label>
+                  <div style={{display:'flex',gap:6}}>
+                    <input className="form-input" placeholder="400-0000" value={editCompany.zip_code||''} maxLength={8}
+                      onChange={e=>setEditCompany(f=>({...f,zip_code:e.target.value}))}/>
+                    <button type="button" className="btn btn-ghost btn-sm" style={{whiteSpace:'nowrap'}} onClick={async()=>{
+                      const z=(editCompany.zip_code||'').replace(/[^0-9]/g,'');
+                      if(z.length!==7){showToast('7桁の郵便番号を入力してください','error');return;}
+                      try{
+                        const r=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
+                        const d=await r.json();
+                        if(d.results){const a=d.results[0];setEditCompany(f=>({...f,address:a.address1+a.address2+a.address3}));showToast('住所を自動入力しました ✓');}
+                        else showToast('住所が見つかりませんでした','error');
+                      }catch(e){showToast('住所取得に失敗しました','error');}
+                    }}>住所検索</button>
+                  </div>
                 </div>
                 <div className="form-group fg-full"><label className="form-label">住所</label>
                   <input className="form-input" value={editCompany.address||''} onChange={e=>setEditCompany(f=>({...f,address:e.target.value}))}/>
