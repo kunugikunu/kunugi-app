@@ -526,16 +526,41 @@ class Handler(BaseHTTPRequestHandler):
                     con.commit(); self.send_json({"ok":True})
 
                 elif parts[1]=="sites":
-                    fields=[]; vals=[]
-                    for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","start_date","end_date","status"]:
-                        if k in b:
-                            fields.append(f"{k}=?")
-                            vals.append(float(b[k]) if k in ["one_way_km"] else int(b[k]) if k in ["contract","manday_price","support_company_id"] else b[k])
-                    if fields:
-                        vals.append(parts[2])
-                        con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
-                    con.commit()
-                    self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(parts[2],)).fetchone()))
+                    old_id = parts[2]
+                    new_id = b.get("new_id", "").strip()
+                    # IDが変更される場合：新IDで作り直し→関連データ付け替え→旧ID削除
+                    if new_id and new_id != old_id:
+                        if con.execute("SELECT id FROM sites WHERE id=?",(new_id,)).fetchone():
+                            self.send_json({"error":f"ID '{new_id}' は既に使用されています"},409); return
+                        # 現在のデータを取得してnew_idで挿入
+                        orig = row(con.execute("SELECT * FROM sites WHERE id=?",(old_id,)).fetchone())
+                        if not orig: self.send_json({"error":"現場が見つかりません"},404); return
+                        # 更新フィールドをorigに上書き
+                        for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","start_date","end_date","status"]:
+                            if k in b: orig[k] = float(b[k]) if k=="one_way_km" else int(b[k]) if k in ["contract","manday_price"] else (int(b[k]) if k=="support_company_id" and b[k] else None if k=="support_company_id" else b[k])
+                        con.execute("INSERT INTO sites (id,name,client,site_type,contract,manday_price,one_way_km,support_company_id,start_date,end_date,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (new_id,orig["name"],orig.get("client",""),orig.get("site_type","請負"),
+                             orig.get("contract",0),orig.get("manday_price",0),orig.get("one_way_km",0),
+                             orig.get("support_company_id"),orig.get("start_date",""),orig.get("end_date",""),orig.get("status","準備中")))
+                        # 関連データを付け替え
+                        con.execute("UPDATE daily_logs SET site_id=? WHERE site_id=?",(new_id,old_id))
+                        con.execute("UPDATE subcons SET site_id=? WHERE site_id=?",(new_id,old_id))
+                        con.execute("UPDATE extra_works SET site_id=? WHERE site_id=?",(new_id,old_id))
+                        con.execute("DELETE FROM sites WHERE id=?",(old_id,))
+                        con.commit()
+                        self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(new_id,)).fetchone()))
+                    else:
+                        # IDは変わらない：通常の UPDATE
+                        fields=[]; vals=[]
+                        for k in ["name","client","site_type","contract","manday_price","one_way_km","support_company_id","start_date","end_date","status"]:
+                            if k in b:
+                                fields.append(f"{k}=?")
+                                vals.append(float(b[k]) if k in ["one_way_km"] else int(b[k]) if k in ["contract","manday_price"] else (int(b[k]) if k=="support_company_id" and b[k] else None if k=="support_company_id" else b[k]))
+                        if fields:
+                            vals.append(old_id)
+                            con.execute(f"UPDATE sites SET {','.join(fields)} WHERE id=?",vals)
+                        con.commit()
+                        self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(old_id,)).fetchone()))
 
                 elif parts[1]=="logs":
                     fields=[]; vals=[]
