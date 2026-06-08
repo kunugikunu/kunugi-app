@@ -398,11 +398,49 @@ function App(){
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
-  const avgR=totalRevenue>0?totalProfit/totalRevenue:0;
+  const now = new Date();
+  const [rangeStart,setRangeStart]=useState(()=>{
+    const d=new Date(now.getFullYear(), now.getMonth()-5, 1);
+    return d.toISOString().slice(0,7); // YYYY-MM
+  });
+  const [rangeEnd,setRangeEnd]=useState(()=>now.toISOString().slice(0,7));
+
+  // 月別集計（日報ベース）
+  const monthlyData = useMemo(()=>{
+    if(!data.summary||!data.logs) return [];
+    // 期間内の月を生成
+    const months=[];
+    let cur=new Date(rangeStart+'-01');
+    const end=new Date(rangeEnd+'-01');
+    while(cur<=end){
+      months.push(cur.toISOString().slice(0,7));
+      cur=new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+    }
+    return months.map(ym=>{
+      // その月の日報を収集
+      const logs=data.logs.filter(l=>(l.date||'').startsWith(ym));
+      const mandays=logs.length;
+      // 現場別売上を月按分（簡易：日報件数で按分）
+      const siteLogCounts={};
+      logs.forEach(l=>{ siteLogCounts[l.site_id]=(siteLogCounts[l.site_id]||0)+1; });
+      let revenue=0;
+      Object.entries(siteLogCounts).forEach(([sid,cnt])=>{
+        const s=data.summary.find(x=>x.id===sid);
+        if(!s) return;
+        const totalLogs=data.logs.filter(l=>l.site_id===sid).length;
+        if(totalLogs>0) revenue+=Math.round((s.revenue||0)*cnt/totalLogs);
+      });
+      return {ym, label:ym.slice(5)+'月', mandays, revenue};
+    });
+  },[data.logs,data.summary,rangeStart,rangeEnd]);
+
+  const maxRevenue=Math.max(...monthlyData.map(d=>d.revenue),1);
+  const maxMandays=Math.max(...monthlyData.map(d=>d.mandays),1);
+
   return (
     <>
       <div className="topbar">
-        <div><div className="page-title">ダッシュボード</div><div className="page-sub">{new Date().getFullYear()}年{new Date().getMonth()+1}月</div></div>
+        <div><div className="page-title">ダッシュボード</div><div className="page-sub">{now.getFullYear()}年{now.getMonth()+1}月</div></div>
         <button className="btn btn-accent" onClick={()=>setPage('daily')}>＋ 日報</button>
       </div>
       <div className="content">
@@ -423,6 +461,60 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
             <div className="kpi-delta">本日 {data.logs.filter(l=>l.date===today()).length}件</div>
           </div>
         </div>}
+
+        {/* 月別グラフ */}
+        {isMgr&&<div className="card">
+          <div className="card-header">
+            <div className="card-title">月別推移</div>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <input type="month" className="form-input" style={{width:'auto',padding:'4px 8px',fontSize:12}}
+                value={rangeStart} onChange={e=>setRangeStart(e.target.value)}/>
+              <span style={{fontSize:12,color:'var(--mist)'}}>〜</span>
+              <input type="month" className="form-input" style={{width:'auto',padding:'4px 8px',fontSize:12}}
+                value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)}/>
+            </div>
+          </div>
+          <div style={{padding:'16px 18px'}}>
+            {monthlyData.length===0
+              ?<div className="empty"><div className="empty-icon">📊</div>期間を設定してください</div>
+              :<>
+                {/* 凡例 */}
+                <div style={{display:'flex',gap:16,marginBottom:12,fontSize:11}}>
+                  <span><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:'var(--accent)',marginRight:4}}></span>売上（税抜）</span>
+                  <span><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:'var(--blue)',marginRight:4}}></span>人工数</span>
+                </div>
+                {/* 棒グラフ */}
+                <div style={{display:'flex',alignItems:'flex-end',gap:4,height:200,paddingBottom:0,overflowX:'auto',paddingTop:8}}>
+                  {monthlyData.map(d=>(
+                    <div key={d.ym} style={{flex:'0 0 auto',minWidth:44,display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
+                      {/* 数値ラベル */}
+                      <div style={{fontSize:9,color:'var(--accent)',fontFamily:'DM Mono,monospace',marginBottom:2,whiteSpace:'nowrap'}}>
+                        {d.revenue>0?Math.round(d.revenue/10000)+'万':''}
+                      </div>
+                      {/* バー群 */}
+                      <div style={{display:'flex',alignItems:'flex-end',gap:2,height:130}}>
+                        <div style={{width:16,background:'var(--accent)',borderRadius:'2px 2px 0 0',
+                          height:d.revenue>0?Math.max(3,Math.round(d.revenue/maxRevenue*130))+'px':'3px',
+                          transition:'height 0.3s'}}
+                          title={fmt(d.revenue)}></div>
+                        <div style={{width:16,background:'var(--blue)',borderRadius:'2px 2px 0 0',
+                          height:d.mandays>0?Math.max(3,Math.round(d.mandays/maxMandays*130))+'px':'3px',
+                          transition:'height 0.3s'}}
+                          title={d.mandays+'人工'}></div>
+                      </div>
+                      {/* 月ラベル */}
+                      <div style={{fontSize:10,color:'var(--mist)',marginTop:4,whiteSpace:'nowrap'}}>{d.label}</div>
+                      <div style={{fontSize:9,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>
+                        {d.mandays>0?d.mandays+'人工':''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            }
+          </div>
+        </div>}
+
         {isMgr&&<div className="card">
           <div className="card-header"><div className="card-title">現場別サマリー</div><span className="badge badge-orange">自動集計</span></div>
           <div className="table-wrap"><table>
@@ -829,10 +921,7 @@ function SitesPage({data,token,reload,showToast}){
                   <div className="site-num-val" style={{color:'var(--blue)'}}>{s.total_mandays}人工</div>
                 </div>
               </div>
-              <div className="stacked">
-                <div style={{width:s.revenue>0?Math.min(100,s.labor_cost/s.revenue*100)+'%':'0%',background:'var(--blue)'}}></div>
-                <div style={{width:s.revenue>0?Math.min(100,(s.subcon_cost||0)/s.revenue*100)+'%':'0%',background:'var(--purple)'}}></div>
-              </div>
+
               {extraList.length>0&&<div style={{marginTop:10,padding:'8px 10px',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
                 <div style={{fontSize:10,color:'var(--mist)',marginBottom:6,letterSpacing:'1px'}}>追加工事</div>
                 {extraList.map(e=><div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
@@ -846,9 +935,7 @@ function SitesPage({data,token,reload,showToast}){
             </div>
           </div>;
         })}
-        <div className="legend">{[['var(--blue)','労務費'],['var(--purple)','外注費']].map(([c,l])=>(
-          <span key={l}><span className="legend-dot" style={{background:c}}></span>{l}</span>
-        ))}</div>
+
       </div>
 
       {editSite&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
