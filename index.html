@@ -1251,6 +1251,23 @@ function MasterPage({data,token,reload,showToast,user}){
     setSf({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',one_way_km:'',support_company_id:'',start_date:'',end_date:'',status:'進行中'});
   };
   const delSite=async(id)=>{await api.del(`/sites/${id}`,token);showToast('削除しました');reload();};
+  const [editSiteMaster,setEditSiteMaster]=useState(null);
+  const saveEditSiteMaster=async()=>{
+    if(!editSiteMaster.name){showToast('現場名を入力してください','error');return;}
+    setSaving(true);
+    const res=await api.put(`/sites/${editSiteMaster.id}`,{
+      name:editSiteMaster.name, client:editSiteMaster.client||'',
+      site_type:editSiteMaster.site_type,
+      contract:+editSiteMaster.contract||0, manday_price:+editSiteMaster.manday_price||0,
+      one_way_km:+editSiteMaster.one_way_km||0,
+      support_company_id:editSiteMaster.support_company_id||null,
+      start_date:editSiteMaster.start_date||'', end_date:editSiteMaster.end_date||'',
+      status:editSiteMaster.status,
+    },token);
+    setSaving(false);
+    if(res.error){showToast(res.error,'error');return;}
+    showToast('現場情報を更新しました ✓');setEditSiteMaster(null);reload();
+  };
 
   const addCompany=async()=>{
     if(!cf.name){showToast('会社名を入力してください','error');return;}
@@ -1371,22 +1388,83 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="submit-bar"><span></span><button className="btn-submit" onClick={addSite} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細は「現場集計」→「編集」から</span></div>
+            <div className="card-header"><div className="card-title">現場一覧</div></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>現場名</th><th>元請/取引先</th><th>タイプ</th><th>金額</th><th>片道km</th><th>状況</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>現場名</th><th>元請/取引先</th><th>タイプ</th><th>金額</th><th>片道km</th><th>期間</th><th>状況</th><th></th></tr></thead>
               <tbody>{data.sites.map(s=>(
                 <tr key={s.id}>
-                  <td className="mono">{s.id}</td><td>{s.name}</td>
-                  <td style={{color:'var(--mist)'}}>{s.site_type==='応援'?(s.support_company_name||'—'):s.client}</td>
+                  <td className="mono">{s.id}</td>
+                  <td style={{fontWeight:500}}>{s.name}</td>
+                  <td style={{color:'var(--mist)',fontSize:11}}>{s.site_type==='応援'?(s.support_company_name||'—'):s.client}</td>
                   <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
                   <td className="mono">{s.site_type==='応援'?fmt(s.manday_price)+'/人工':fmt(s.contract)}</td>
                   <td className="mono" style={{color:'var(--blue)'}}>{s.one_way_km>0?s.one_way_km+'km':'—'}</td>
+                  <td style={{fontSize:10,color:'var(--mist)'}}>{s.start_date||'—'}{s.end_date?`〜${s.end_date}`:''}</td>
                   <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
-                  <td><button className="btn btn-danger btn-sm" onClick={()=>delSite(s.id)}>削除</button></td>
+                  <td style={{display:'flex',gap:4}}>
+                    <button className="btn btn-ghost btn-sm" onClick={()=>setEditSiteMaster({...s})}>編集</button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>delSite(s.id)}>削除</button>
+                  </td>
                 </tr>
               ))}</tbody>
             </table></div>
           </div>
+
+          {editSiteMaster&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
+            <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:520,padding:24,margin:'auto'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+                <div style={{fontSize:16,fontWeight:700}}>現場を編集</div>
+                <div className="mono" style={{fontSize:11,color:'var(--mist)'}}>ID: {editSiteMaster.id}</div>
+              </div>
+              <div className="form-grid" style={{padding:0}}>
+                <div className="form-group fg-full"><label className="form-label">現場名</label>
+                  <input className="form-input" value={editSiteMaster.name} onChange={e=>setEditSiteMaster(s=>({...s,name:e.target.value}))}/>
+                </div>
+                <div className="form-group"><label className="form-label">元請</label>
+                  <input className="form-input" value={editSiteMaster.client||''} onChange={e=>setEditSiteMaster(s=>({...s,client:e.target.value}))}/>
+                </div>
+                <div className="form-group"><label className="form-label">タイプ</label>
+                  <select className="form-input" value={editSiteMaster.site_type||'請負'} onChange={e=>setEditSiteMaster(s=>({...s,site_type:e.target.value}))}>
+                    <option>請負</option><option>応援</option>
+                  </select>
+                </div>
+                {editSiteMaster.site_type==='応援'
+                  ?<>
+                    <div className="form-group"><label className="form-label">1人工単価（円）</label>
+                      <input type="number" className="form-input" value={editSiteMaster.manday_price||0} onChange={e=>setEditSiteMaster(s=>({...s,manday_price:e.target.value}))}/>
+                    </div>
+                    <div className="form-group"><label className="form-label">取引先</label>
+                      <select className="form-input" value={editSiteMaster.support_company_id||''} onChange={e=>setEditSiteMaster(s=>({...s,support_company_id:e.target.value}))}>
+                        <option value="">選択してください</option>
+                        {(data.companies||[]).map(cp=><option key={cp.id} value={cp.id}>{cp.name}</option>)}
+                      </select>
+                    </div>
+                  </>
+                  :<div className="form-group fg-full"><label className="form-label">契約金額（円）</label>
+                    <input type="number" className="form-input" value={editSiteMaster.contract||0} onChange={e=>setEditSiteMaster(s=>({...s,contract:e.target.value}))}/>
+                  </div>
+                }
+                <div className="form-group"><label className="form-label">片道距離（km）</label>
+                  <input type="number" className="form-input" min="0" step="0.5" value={editSiteMaster.one_way_km||0} onChange={e=>setEditSiteMaster(s=>({...s,one_way_km:e.target.value}))}/>
+                </div>
+                <div className="form-group"><label className="form-label">状況</label>
+                  <select className="form-input" value={editSiteMaster.status} onChange={e=>setEditSiteMaster(s=>({...s,status:e.target.value}))}>
+                    <option>準備中</option><option>進行中</option><option>完了</option>
+                  </select>
+                </div>
+                <div className="form-group"><label className="form-label">開始日</label>
+                  <input type="date" className="form-input" value={editSiteMaster.start_date||''} onChange={e=>setEditSiteMaster(s=>({...s,start_date:e.target.value}))}/>
+                </div>
+                <div className="form-group"><label className="form-label">終了日（予定）</label>
+                  <input type="date" className="form-input" value={editSiteMaster.end_date||''} onChange={e=>setEditSiteMaster(s=>({...s,end_date:e.target.value}))}/>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:10,marginTop:18,justifyContent:'flex-end'}}>
+                <button className="btn btn-ghost" onClick={()=>setEditSiteMaster(null)}>キャンセル</button>
+                <button className="btn-submit" style={{padding:'8px 20px'}} onClick={saveEditSiteMaster} disabled={saving}>{saving?'保存中…':'保存する'}</button>
+              </div>
+            </div>
+          </div>}
         </>}
 
 
