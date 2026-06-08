@@ -400,15 +400,14 @@ function App(){
 function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
   const now = new Date();
   const [rangeStart,setRangeStart]=useState(()=>{
-    const d=new Date(now.getFullYear(), now.getMonth()-5, 1);
-    return d.toISOString().slice(0,7); // YYYY-MM
+    const d=new Date(now.getFullYear(), now.getMonth()-5, 1); // 5ヶ月前（当月含め6ヶ月）
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   });
-  const [rangeEnd,setRangeEnd]=useState(()=>now.toISOString().slice(0,7));
+  const [rangeEnd,setRangeEnd]=useState(()=>`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
 
-  // 月別集計（日報ベース）
+  // 月別集計（日報ベース、売上のみ）
   const monthlyData = useMemo(()=>{
     if(!data.summary||!data.logs) return [];
-    // 期間内の月を生成
     const months=[];
     let cur=new Date(rangeStart+'-01');
     const end=new Date(rangeEnd+'-01');
@@ -417,10 +416,7 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
       cur=new Date(cur.getFullYear(), cur.getMonth()+1, 1);
     }
     return months.map(ym=>{
-      // その月の日報を収集
       const logs=data.logs.filter(l=>(l.date||'').startsWith(ym));
-      const mandays=logs.length;
-      // 現場別売上を月按分（簡易：日報件数で按分）
       const siteLogCounts={};
       logs.forEach(l=>{ siteLogCounts[l.site_id]=(siteLogCounts[l.site_id]||0)+1; });
       let revenue=0;
@@ -430,12 +426,11 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
         const totalLogs=data.logs.filter(l=>l.site_id===sid).length;
         if(totalLogs>0) revenue+=Math.round((s.revenue||0)*cnt/totalLogs);
       });
-      return {ym, label:ym.slice(5)+'月', mandays, revenue};
+      return {ym, label:ym.replace(/^\d{4}-/,'')+('月'), revenue};
     });
   },[data.logs,data.summary,rangeStart,rangeEnd]);
 
   const maxRevenue=Math.max(...monthlyData.map(d=>d.revenue),1);
-  const maxMandays=Math.max(...monthlyData.map(d=>d.mandays),1);
 
   return (
     <>
@@ -479,36 +474,33 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
               ?<div className="empty"><div className="empty-icon">📊</div>期間を設定してください</div>
               :<>
                 {/* 凡例 */}
-                <div style={{display:'flex',gap:16,marginBottom:12,fontSize:11}}>
+                <div style={{display:'flex',gap:16,marginBottom:8,fontSize:11,color:'var(--mist)'}}>
                   <span><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:'var(--accent)',marginRight:4}}></span>売上（税抜）</span>
-                  <span><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:'var(--blue)',marginRight:4}}></span>人工数</span>
+                  <span style={{color:'var(--slate)'}}>当月は濃く表示</span>
                 </div>
-                {/* 棒グラフ */}
-                <div style={{display:'flex',alignItems:'flex-end',gap:4,height:200,paddingBottom:0,overflowX:'auto',paddingTop:8}}>
-                  {monthlyData.map(d=>(
-                    <div key={d.ym} style={{flex:'0 0 auto',minWidth:44,display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
-                      {/* 数値ラベル */}
-                      <div style={{fontSize:9,color:'var(--accent)',fontFamily:'DM Mono,monospace',marginBottom:2,whiteSpace:'nowrap'}}>
-                        {d.revenue>0?Math.round(d.revenue/10000)+'万':''}
+                {/* 棒グラフ（売上のみ） */}
+                <div style={{display:'flex',alignItems:'flex-end',gap:6,height:180,overflowX:'auto',paddingTop:4}}>
+                  {monthlyData.map((d,i)=>{
+                    const barH = d.revenue>0 ? Math.max(4, Math.round(d.revenue/maxRevenue*130)) : 4;
+                    const isCurrentMonth = d.ym===`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+                    return (
+                      <div key={d.ym} style={{flex:'1 1 0',minWidth:36,display:'flex',flexDirection:'column',alignItems:'center'}}>
+                        <div style={{fontSize:10,color:'var(--accent)',fontFamily:'DM Mono,monospace',marginBottom:3,whiteSpace:'nowrap'}}>
+                          {d.revenue>0 ? Math.round(d.revenue/10000)+'万' : ''}
+                        </div>
+                        <div style={{flex:1,display:'flex',alignItems:'flex-end',width:'100%',paddingBottom:0}}>
+                          <div style={{
+                            width:'100%', borderRadius:'3px 3px 0 0',
+                            background: isCurrentMonth ? 'var(--accent)' : 'rgba(246,166,35,0.45)',
+                            height: barH+'px',
+                            transition:'height 0.4s ease',
+                          }} title={fmt(d.revenue)}></div>
+                        </div>
+                        <div style={{borderTop:'1px solid rgba(255,255,255,0.08)',width:'100%',marginTop:0}}></div>
+                        <div style={{fontSize:11,color:isCurrentMonth?'var(--white)':'var(--mist)',marginTop:4,whiteSpace:'nowrap',fontWeight:isCurrentMonth?700:400}}>{d.label}</div>
                       </div>
-                      {/* バー群 */}
-                      <div style={{display:'flex',alignItems:'flex-end',gap:2,height:130}}>
-                        <div style={{width:16,background:'var(--accent)',borderRadius:'2px 2px 0 0',
-                          height:d.revenue>0?Math.max(3,Math.round(d.revenue/maxRevenue*130))+'px':'3px',
-                          transition:'height 0.3s'}}
-                          title={fmt(d.revenue)}></div>
-                        <div style={{width:16,background:'var(--blue)',borderRadius:'2px 2px 0 0',
-                          height:d.mandays>0?Math.max(3,Math.round(d.mandays/maxMandays*130))+'px':'3px',
-                          transition:'height 0.3s'}}
-                          title={d.mandays+'人工'}></div>
-                      </div>
-                      {/* 月ラベル */}
-                      <div style={{fontSize:10,color:'var(--mist)',marginTop:4,whiteSpace:'nowrap'}}>{d.label}</div>
-                      <div style={{fontSize:9,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>
-                        {d.mandays>0?d.mandays+'人工':''}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             }
