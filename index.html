@@ -297,10 +297,10 @@ function App(){
     setLoading(true);
     try{
       const isMgr=user.role==='manager';
-      const base=[api.get('/sites',token),api.get('/logs',token)];
-      const mgr=isMgr?[api.get('/employees',token),api.get('/subcons',token),api.get('/extra_works',token),api.get('/summary',token),api.get('/salary',token)]:[];
-      const [sites,logs,...rest]=await Promise.all([...base,...mgr]);
-      const [employees,subcons,extra_works,summary,salary]=isMgr?rest:[[],[],[],[],[]];
+      const base=[api.get('/sites',token),api.get('/logs',token),api.get('/emp_site_km',token)];
+      const mgr=isMgr?[api.get('/employees',token),api.get('/subcons',token),api.get('/extra_works',token),api.get('/summary',token)]:[];
+      const [sites,logs,emp_site_km,...rest]=await Promise.all([...base,...mgr]);
+      const [employees,subcons,extra_works,summary]=isMgr?rest:[[],[],[],[]];
       setData({
         employees:Array.isArray(employees)?employees:[],
         sites:Array.isArray(sites)?sites:[],
@@ -308,7 +308,8 @@ function App(){
         subcons:Array.isArray(subcons)?subcons:[],
         extra_works:Array.isArray(extra_works)?extra_works:[],
         summary:Array.isArray(summary)?summary:[],
-        salary:Array.isArray(salary)?salary:[],
+        emp_site_km:Array.isArray(emp_site_km)?emp_site_km:[],
+        salary:[],
       });
     }catch(e){showToast('データ取得エラー','error');}
     finally{setLoading(false);}
@@ -377,7 +378,7 @@ function App(){
         {page==='dashboard'&&<Dashboard data={data} totalRevenue={totalRevenue} totalProfit={totalProfit} totalMandays={totalMandays} isMgr={isMgr} setPage={setPage}/>}
         {page==='daily'    &&<DailyInput data={data} user={user} token={token} isMgr={isMgr} reload={reload} showToast={showToast}/>}
         {page==='sites'    &&<SitesPage data={data} token={token} reload={reload} showToast={showToast}/>}
-        {page==='salary'   &&<SalaryPage data={data} user={user} isMgr={isMgr}/>}
+        {page==='salary'   &&<SalaryPage data={data} user={user} isMgr={isMgr} token={token} showToast={showToast}/>}
         {page==='subcon'   &&<SubconPage data={data} token={token} reload={reload} showToast={showToast}/>}
         {page==='master'   &&<MasterPage data={data} token={token} reload={reload} showToast={showToast} user={user}/>}
       </div>
@@ -394,7 +395,6 @@ function App(){
   );
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────────
 // ── Dashboard ─────────────────────────────────────────────────────────────
 function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
   const avgR=totalRevenue>0?totalProfit/totalRevenue:0;
@@ -467,41 +467,54 @@ function Dashboard({data,totalRevenue,totalProfit,totalMandays,isMgr,setPage}){
 }
 
 // ── DailyInput ────────────────────────────────────────────────────────────
+// ── DailyInput ────────────────────────────────────────────────────────────
 function DailyInput({data,user,token,isMgr,reload,showToast}){
-  const empOpts=isMgr?data.employees:[{id:user.empId,name:user.name}];
-  const [form,setForm]=useState({
+  const empOpts = isMgr ? data.employees : [{id:user.empId,name:user.name}];
+  const [form,setForm] = useState({
     date:today(), empId:user.empId, siteId:data.sites[0]?.id||'',
-    overtime_h:'', drive_type:'なし', drive_km:'', memo:''
+    overtime_h:'', drive_type:'なし', is_trip:false, memo:''
   });
-  const [saving,setSaving]=useState(false);
-  useEffect(()=>{if(data.sites.length&&!form.siteId)setForm(f=>({...f,siteId:data.sites[0].id}));},[data.sites]);
+  const [saving,setSaving] = useState(false);
+
+  useEffect(()=>{
+    if(data.sites.length&&!form.siteId) setForm(f=>({...f,siteId:data.sites[0].id}));
+  },[data.sites]);
+
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
-  // 運転距離の実km計算（表示用）
-  const km = parseFloat(form.drive_km)||0;
-  const actualKm = form.drive_type==='往復'?km*2:form.drive_type==='片道'?km:0;
-  const drivePay = Math.round(actualKm*4);
-  const movePay  = Math.round(actualKm*14);
-  const otPay    = Math.round((parseFloat(form.overtime_h)||0)*2100);
+  // 現場×従業員の設定km取得
+  const getKm = (empId, siteId) => {
+    const rec = data.emp_site_km?.find(r=>r.emp_id===empId && r.site_id===siteId);
+    return rec ? rec.one_way_km : 0;
+  };
+  const km = getKm(form.empId, form.siteId);
+  const actualKm = form.drive_type==='往復' ? km*2 : form.drive_type==='片道' ? km : 0;
+  const drivePay = Math.round(actualKm * 4);
+  const movePay  = Math.round(actualKm * 14);
+  const otPay    = Math.round((parseFloat(form.overtime_h)||0) * 2100);
+  const empInfo  = data.employees.find(e=>e.id===form.empId);
+  const tripPay  = form.is_trip ? (empInfo?.trip_allowance||0) : 0;
 
-  const submit=async()=>{
+  const submit = async()=>{
     if(!form.siteId){showToast('現場を選択してください','error');return;}
     setSaving(true);
-    const res=await api.post('/logs',{
+    const res = await api.post('/logs',{
       ...form,
       overtime_h: parseFloat(form.overtime_h)||0,
-      drive_km: parseFloat(form.drive_km)||0,
+      drive_km: km,
     },token);
     setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('日報を保存しました ✓');reload();
-    setForm(f=>({...f,overtime_h:'',drive_type:'なし',drive_km:'',memo:''}));
+    setForm(f=>({...f,overtime_h:'',drive_type:'なし',is_trip:false,memo:''}));
   };
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
 
   return (
     <>
-      <div className="topbar"><div><div className="page-title">日報入力</div><div className="page-sub">1日1件 = 1人工としてカウントされます</div></div></div>
+      <div className="topbar">
+        <div><div className="page-title">日報入力</div><div className="page-sub">1日1件 = 1人工 / 現場の距離は自動設定</div></div>
+      </div>
       <div className="content">
         <div className="card">
           <div className="card-header"><div className="card-title">日報追加</div><span className="badge badge-orange">新規</span></div>
@@ -510,7 +523,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               <label className="form-label">日付</label>
               <input type="date" className="form-input" value={form.date} onChange={e=>set('date',e.target.value)}/>
             </div>
-            {isMgr&&<div className="form-group">
+            {isMgr && <div className="form-group">
               <label className="form-label">従業員</label>
               <select className="form-input" value={form.empId} onChange={e=>set('empId',e.target.value)}>
                 {empOpts.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
@@ -527,26 +540,34 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
               <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
                 value={form.overtime_h} onChange={e=>set('overtime_h',e.target.value)}/>
             </div>
-            {/* 運転 */}
             <div className="form-group">
-              <label className="form-label">運転</label>
+              <label className="form-label">
+                運転
+                {km>0 && <span style={{marginLeft:6,fontSize:10,color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>設定距離: {km}km</span>}
+                {km===0 && form.drive_type!=='なし' && <span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>※距離未設定</span>}
+              </label>
               <select className="form-input" value={form.drive_type} onChange={e=>set('drive_type',e.target.value)}>
                 <option>なし</option><option>片道</option><option>往復</option>
               </select>
             </div>
-            {form.drive_type!=='なし'&&<div className="form-group">
-              <label className="form-label">距離（km）</label>
-              <input type="number" className="form-input" placeholder="0" min="0" step="1"
-                value={form.drive_km} onChange={e=>set('drive_km',e.target.value)}/>
-            </div>}
+            <div className="form-group">
+              <label className="form-label">出張</label>
+              <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>
+                <input type="checkbox" checked={form.is_trip} onChange={e=>set('is_trip',e.target.checked)}
+                  style={{width:16,height:16,accentColor:'var(--accent)'}}/>
+                <span style={{fontSize:13}}>出張あり
+                  {empInfo?.trip_allowance>0 && <span style={{marginLeft:6,fontSize:11,color:'var(--mist)',fontFamily:'DM Mono,monospace'}}>(+{(empInfo.trip_allowance).toLocaleString()}円)</span>}
+                </span>
+              </label>
+            </div>
             {/* 手当プレビュー */}
-            {(form.overtime_h>0||actualKm>0)&&<div className="form-group fg-full">
-              <label className="form-label">手当プレビュー</label>
+            {(otPay>0||actualKm>0||tripPay>0) && <div className="form-group fg-full">
+              <label className="form-label">手当プレビュー（{form.drive_type!=='なし'?`実走${actualKm}km`:''}）</label>
               <div className="calc-box">
-                {otPay>0&&<div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外手当</div></div>}
-                {drivePay>0&&<div className="calc-item"><div className="calc-val" style={{color:'var(--blue)'}}>{fmt(drivePay)}</div><div className="calc-lbl">運転手当</div></div>}
-                {movePay>0&&<div className="calc-item"><div className="calc-val" style={{color:'var(--green)'}}>{fmt(movePay)}</div><div className="calc-lbl">移動手当</div></div>}
-                {actualKm>0&&<div className="calc-item"><div className="calc-val" style={{color:'var(--mist)'}}>{actualKm}km</div><div className="calc-lbl">実走行距離</div></div>}
+                {otPay>0   && <div className="calc-item"><div className="calc-val" style={{color:'var(--purple)'}}>{fmt(otPay)}</div><div className="calc-lbl">時間外</div></div>}
+                {tripPay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--accent)'}}>{fmt(tripPay)}</div><div className="calc-lbl">出張手当</div></div>}
+                {drivePay>0&& <div className="calc-item"><div className="calc-val" style={{color:'var(--blue)'}}>{fmt(drivePay)}</div><div className="calc-lbl">運転手当</div></div>}
+                {movePay>0 && <div className="calc-item"><div className="calc-val" style={{color:'var(--green)'}}>{fmt(movePay)}</div><div className="calc-lbl">移動手当</div></div>}
               </div>
             </div>}
             <div className="form-group fg-full">
@@ -555,38 +576,37 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             </div>
           </div>
           <div className="submit-bar">
-            <div className="submit-info">代表（MGR）は人工数にカウント・給与計算なし</div>
+            <div className="submit-info">距離は設定→距離設定から変更できます</div>
             <button className="btn-submit" onClick={submit} disabled={saving}>{saving?'保存中…':'日報を送信 →'}</button>
           </div>
         </div>
 
         <div className="card">
           <div className="card-header"><div className="card-title">日報一覧</div><span className="badge badge-blue">{data.logs.length}件</span></div>
-          {data.logs.length===0?<div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
-          :<div className="table-wrap"><table>
-            <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>距離</th><th>メモ</th><th></th></tr></thead>
-            <tbody>{data.logs.map(l=>{
-              const km2=l.drive_km||0;
-              const akm=l.drive_type==='往復'?km2*2:l.drive_type==='片道'?km2:0;
-              return <tr key={l.id}>
-                <td className="mono">{l.date}</td>
-                <td>{l.emp_name||l.emp_id}</td>
-                <td><span className="badge badge-orange">{l.site_id}</span></td>
-                <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
-                <td style={{fontSize:11}}>{l.drive_type||'なし'}</td>
-                <td className="mono" style={{color:'var(--blue)'}}>{akm>0?akm+'km':'—'}</td>
-                <td style={{color:'var(--mist)',fontSize:11}}>{l.memo||'—'}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
-              </tr>;
-            })}</tbody>
-          </table></div>}
+          {data.logs.length===0
+            ? <div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
+            : <div className="table-wrap"><table>
+              <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>出張</th><th>メモ</th><th></th></tr></thead>
+              <tbody>{data.logs.map(l=>{
+                const akm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
+                return <tr key={l.id}>
+                  <td className="mono">{l.date}</td>
+                  <td>{l.emp_name||l.emp_id}</td>
+                  <td><span className="badge badge-orange">{l.site_id}</span></td>
+                  <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
+                  <td style={{fontSize:11,color:'var(--blue)'}}>{akm>0?`${l.drive_type} ${akm}km`:'—'}</td>
+                  <td>{l.is_trip?<span className="badge badge-orange">出張</span>:'—'}</td>
+                  <td style={{color:'var(--mist)',fontSize:11}}>{l.memo||'—'}</td>
+                  <td><button className="btn btn-danger btn-sm" onClick={()=>del(l.id)}>削除</button></td>
+                </tr>;
+              })}</tbody>
+            </table></div>}
         </div>
       </div>
     </>
   );
 }
 
-// ── SitesPage ─────────────────────────────────────────────────────────────
 function SitesPage({data,token,reload,showToast}){
   const [editSite,setEditSite]=useState(null);
   const [extraForm,setExtraForm]=useState(null);
@@ -773,70 +793,254 @@ function SitesPage({data,token,reload,showToast}){
 }
 
 // ── SalaryPage ────────────────────────────────────────────────────────────
-function SalaryPage({data,user,isMgr}){
-  const salary = data.salary || [];
-  const total  = salary.reduce((s,e)=>s+e.total_pay,0);
+// ── SalaryPage ────────────────────────────────────────────────────────────
+function SalaryPage({data,user,isMgr,token,showToast}){
+  const now = new Date();
+  const [year,  setYear]  = useState(String(now.getFullYear()));
+  const [month, setMonth] = useState(String(now.getMonth()+1).padStart(2,'0'));
+  const [viewMode,setViewMode] = useState('month'); // 'month' | 'year'
+  const [salary, setSalary]    = useState([]);
+  const [detail, setDetail]    = useState(null); // {emp, logs, salary} 給与明細表示用
+  const [loading2, setLoading2]= useState(false);
+
+  const years = [];
+  for(let y=now.getFullYear(); y>=now.getFullYear()-3; y--) years.push(String(y));
+  const months = Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
+
+  const fetchSalary = async()=>{
+    setLoading2(true);
+    const qs = viewMode==='month'
+      ? `?year=${year}&month=${month}`
+      : `?year=${year}`;
+    const res = await api.get(`/salary${qs}`,token);
+    setSalary(Array.isArray(res)?res:[]);
+    setLoading2(false);
+  };
+
+  useEffect(()=>{fetchSalary();},[year,month,viewMode,token]);
+
+  const fetchDetail = async(empId)=>{
+    const qs = viewMode==='month'
+      ? `?emp_id=${empId}&year=${year}&month=${month}`
+      : `?emp_id=${empId}&year=${year}`;
+    const res = await api.get(`/salary_detail${qs}`,token);
+    if(res.error){showToast(res.error,'error');return;}
+    // クライアントで給与計算
+    const e = res.emp;
+    const logs = res.logs;
+    const days = logs.length;
+    const base_pay  = days * e.daily_wage;
+    const ot_h = logs.reduce((s,l)=>s+(l.overtime_h||0),0);
+    const ot_pay = Math.round(ot_h*2100);
+    const trip_days = logs.filter(l=>l.is_trip).length;
+    const trip_pay  = trip_days * (e.trip_allowance||0);
+    let drive_pay=0,move_pay=0,total_km=0;
+    logs.forEach(l=>{
+      const km=l.drive_km||0, dt=l.drive_type||'なし';
+      const akm=dt==='往復'?km*2:dt==='片道'?km:0;
+      total_km+=akm;
+      drive_pay+=Math.round(akm*4);
+      move_pay +=Math.round(akm*14);
+    });
+    const total_pay = base_pay+ot_pay+trip_pay+drive_pay+move_pay;
+    setDetail({emp:e, logs, days, base_pay, ot_h:Math.round(ot_h*10)/10, ot_pay,
+      trip_days, trip_pay, drive_pay, move_pay, total_km:Math.round(total_km), total_pay});
+  };
+
+  const printSlip = ()=>{
+    if(!detail) return;
+    const d=detail; const e=d.emp;
+    const label = viewMode==='month' ? `${year}年${parseInt(month)}月` : `${year}年`;
+    const win = window.open('','_blank','width=700,height=900');
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>給与明細 ${e.name} ${label}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{font-family:'Noto Sans JP',sans-serif;font-size:13px;color:#111;padding:24px;}
+      h2{text-align:center;font-size:16px;margin-bottom:16px;border-bottom:2px solid #222;padding-bottom:8px;}
+      .header{display:flex;justify-content:space-between;margin-bottom:16px;font-size:12px;}
+      .company{line-height:1.7;}
+      .person{text-align:right;line-height:1.7;}
+      .section{font-weight:700;background:#f0f0f0;padding:4px 8px;margin:12px 0 4px;font-size:12px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:12px;}
+      td,th{border:1px solid #ccc;padding:5px 8px;font-size:12px;}
+      th{background:#f5f5f5;text-align:left;width:40%;}
+      .total-row td{font-weight:700;background:#fff3e0;font-size:14px;}
+      .net-row td{font-weight:700;background:#e8f5e9;font-size:15px;}
+      .note{font-size:10px;color:#666;margin-top:8px;}
+      .right{text-align:right;}
+      @media print{body{padding:12px;} button{display:none;}}
+    </style></head><body>
+    <h2>給 与 明 細</h2>
+    <div class="header">
+      <div class="company">
+        <strong>㓛刀工業</strong><br>
+        〒400-0116 山梨県甲斐市玉川90-8<br>
+        TEL 080-2166-6699 / FAX 055-215-0506<br>
+        支払日: ${label.replace('年','/')}末
+      </div>
+      <div class="person">
+        <strong>${label}分</strong><br>
+        氏名: <strong>${e.name}</strong><br>
+        日給: ${e.daily_wage.toLocaleString()}円/日<br>
+        出張手当: ${(e.trip_allowance||0).toLocaleString()}円/日
+      </div>
+    </div>
+    <div class="section">【勤怠】</div>
+    <table>
+      <tr><th>出勤日数</th><td>${d.days}日</td><th>時間外</th><td>${d.ot_h}h</td></tr>
+      <tr><th>出張日数</th><td>${d.trip_days}日</td><th>移動距離（合計）</th><td>${d.total_km}km</td></tr>
+    </table>
+    <div class="section">【支給】</div>
+    <table>
+      <tr><th>基本給</th><td class="right">${d.base_pay.toLocaleString()}円</td></tr>
+      <tr><th>時間外手当（${d.ot_h}h × 2,100円）</th><td class="right">${d.ot_pay.toLocaleString()}円</td></tr>
+      <tr><th>出張手当（非課税）</th><td class="right">${d.trip_pay.toLocaleString()}円</td></tr>
+      <tr><th>移動手当（${d.total_km}km × 14円）</th><td class="right">${d.move_pay.toLocaleString()}円</td></tr>
+      <tr><th>運転手当（${d.total_km}km × 4円）</th><td class="right">${d.drive_pay.toLocaleString()}円</td></tr>
+      <tr class="total-row"><td>総支給額</td><td class="right">${d.total_pay.toLocaleString()}円</td></tr>
+    </table>
+    <p class="note">※ 時間外 2,100円/h　移動手当 14円/km　運転手当 4円/km</p>
+    <br>
+    <button onclick="window.print()" style="padding:8px 20px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🖨 印刷する</button>
+    </body></html>`);
+    win.document.close();
+  };
+
+  const myList = isMgr ? salary : salary.filter(e=>e.id===user.empId);
+  const totalAll = myList.filter(e=>e.daily_wage>0).reduce((s,e)=>s+e.total_pay,0);
+  const periodLabel = viewMode==='month'
+    ? `${year}年${parseInt(month)}月`
+    : `${year}年間`;
+
   return (
     <>
       <div className="topbar">
         <div><div className="page-title">給与集計</div>
-        <div className="page-sub">日給×日数 ＋ 残業2,100円/h ＋ 運転4円/km ＋ 移動14円/km</div></div>
+          <div className="page-sub">日給×日数 ＋ 残業2,100/h ＋ 出張 ＋ 運転4円/km ＋ 移動14円/km</div>
+        </div>
       </div>
       <div className="content">
-        {isMgr&&salary.length>1&&<div className="kpi-row">
-          <div className="kpi-card" style={{'--kpi-color':'var(--green)'}}>
-            <div className="kpi-label">支給合計（全員）</div>
-            <div className="kpi-value mono">{fmt(total)}</div>
-            <div className="kpi-delta">{salary.filter(e=>e.daily_wage>0).length}名分</div>
+        {/* フィルター */}
+        <div className="card">
+          <div style={{padding:'12px 18px',display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+            <div style={{display:'flex',gap:4}}>
+              <button className={`btn btn-sm ${viewMode==='month'?'btn-accent':'btn-ghost'}`} onClick={()=>setViewMode('month')}>月別</button>
+              <button className={`btn btn-sm ${viewMode==='year'?'btn-accent':'btn-ghost'}`} onClick={()=>setViewMode('year')}>年間</button>
+            </div>
+            <select className="form-input" style={{width:'auto'}} value={year} onChange={e=>setYear(e.target.value)}>
+              {years.map(y=><option key={y} value={y}>{y}年</option>)}
+            </select>
+            {viewMode==='month'&&<select className="form-input" style={{width:'auto'}} value={month} onChange={e=>setMonth(e.target.value)}>
+              {months.map(m=><option key={m} value={m}>{parseInt(m)}月</option>)}
+            </select>}
+            <span style={{fontSize:12,color:'var(--mist)'}}>{periodLabel}</span>
+            {loading2&&<span style={{fontSize:11,color:'var(--accent)'}}>読込中…</span>}
+            {isMgr&&<span style={{marginLeft:'auto',fontFamily:'DM Mono,monospace',fontSize:13}}>
+              支給合計 <span style={{color:'var(--green)',fontWeight:700}}>{fmt(totalAll)}</span>
+            </span>}
           </div>
-        </div>}
-        {salary.map(e=>(
+        </div>
+
+        {myList.map(e=>(
           <div className="card" key={e.id}>
             <div className="card-header">
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div className={`avatar ${e.role==='manager'?'av-mgr':'av-emp'}`} style={{width:28,height:28,fontSize:11,flexShrink:0}}>{e.name[0]}</div>
                 <div>
                   <div style={{fontWeight:700,fontSize:14}}>{e.name}</div>
-                  <div style={{fontSize:10,color:'var(--mist)'}}>{e.id} / 日給 {e.daily_wage>0?fmt(e.daily_wage):'無給（代表）'}</div>
+                  <div style={{fontSize:10,color:'var(--mist)'}}>
+                    {e.id} / {periodLabel} / {e.days}日出勤
+                    {e.daily_wage>0?` / 日給${fmt(e.daily_wage)}`:''}
+                  </div>
                 </div>
               </div>
-              <div style={{fontFamily:'DM Mono,monospace',fontSize:18,fontWeight:700,color:e.daily_wage>0?'var(--green)':'var(--mist)'}}>
-                {e.daily_wage>0?fmt(e.total_pay):'—'}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <div style={{fontFamily:'DM Mono,monospace',fontSize:18,fontWeight:700,color:e.daily_wage>0?'var(--green)':'var(--mist)'}}>
+                  {e.daily_wage>0?fmt(e.total_pay):'—'}
+                </div>
+                {e.daily_wage>0&&<button className="btn btn-ghost btn-sm" onClick={async()=>{await fetchDetail(e.id);}}>明細</button>}
               </div>
             </div>
-            {e.daily_wage>0&&<div style={{padding:'12px 18px'}}>
-              <div className="site-nums" style={{gridTemplateColumns:'repeat(4,1fr)'}}>
-                <div>
-                  <div className="site-num-label">出勤日数</div>
-                  <div className="site-num-val" style={{color:'var(--white)'}}>{e.days}日</div>
-                </div>
-                <div>
-                  <div className="site-num-label">基本給</div>
-                  <div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(e.base_pay)}</div>
-                </div>
-                <div>
-                  <div className="site-num-label">残業手当<br/><span style={{fontSize:9,color:'var(--slate)'}}>{e.ot_hours}h × ¥2,100</span></div>
-                  <div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(e.ot_pay)}</div>
-                </div>
-                <div>
-                  <div className="site-num-label">運転手当</div>
-                  <div className="site-num-val" style={{color:'var(--blue)'}}>{fmt(e.drive_pay)}</div>
-                </div>
-              </div>
-              <div style={{marginTop:8,padding:'8px 12px',background:'rgba(255,255,255,0.03)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{fontSize:11,color:'var(--mist)'}}>移動手当 <span style={{color:'var(--blue)',fontFamily:'DM Mono,monospace'}}>{fmt(e.move_pay)}</span></span>
-                <span style={{fontFamily:'DM Mono,monospace',fontWeight:700}}>支給合計 <span style={{color:'var(--green)',fontSize:16}}>{fmt(e.total_pay)}</span></span>
+            {e.daily_wage>0&&<div style={{padding:'10px 18px'}}>
+              <div className="site-nums" style={{gridTemplateColumns:'repeat(5,1fr)'}}>
+                <div><div className="site-num-label">出勤日数</div><div className="site-num-val" style={{color:'var(--white)'}}>{e.days}日</div></div>
+                <div><div className="site-num-label">基本給</div><div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(e.base_pay)}</div></div>
+                <div><div className="site-num-label">残業手当<br/><span style={{fontSize:9,color:'var(--slate)'}}>{e.ot_hours}h</span></div><div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(e.ot_pay)}</div></div>
+                <div><div className="site-num-label">出張手当<br/><span style={{fontSize:9,color:'var(--slate)'}}>{e.trip_days}日</span></div><div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(e.trip_pay)}</div></div>
+                <div><div className="site-num-label">運転+移動</div><div className="site-num-val" style={{color:'var(--blue)'}}>{fmt(e.drive_pay+e.move_pay)}</div></div>
               </div>
             </div>}
           </div>
         ))}
-        {salary.length===0&&<div className="card"><div className="empty"><div className="empty-icon">💴</div>データがありません</div></div>}
+        {myList.length===0&&!loading2&&<div className="card"><div className="empty"><div className="empty-icon">💴</div>{periodLabel}のデータがありません</div></div>}
       </div>
+
+      {/* 給与明細モーダル */}
+      {detail&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
+        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:560,padding:24,margin:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:16}}>{detail.emp.name}　給与明細</div>
+              <div style={{fontSize:11,color:'var(--mist)'}}>{periodLabel}</div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button className="btn btn-accent btn-sm" onClick={printSlip}>🖨 印刷/PDF</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setDetail(null)}>✕</button>
+            </div>
+          </div>
+          {/* 勤怠 */}
+          <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',marginBottom:6}}>勤怠</div>
+          <div className="site-nums" style={{gridTemplateColumns:'repeat(4,1fr)',marginBottom:14}}>
+            <div><div className="site-num-label">出勤日数</div><div className="site-num-val">{detail.days}日</div></div>
+            <div><div className="site-num-label">時間外</div><div className="site-num-val" style={{color:'var(--purple)'}}>{detail.ot_h}h</div></div>
+            <div><div className="site-num-label">出張</div><div className="site-num-val" style={{color:'var(--accent)'}}>{detail.trip_days}日</div></div>
+            <div><div className="site-num-label">移動距離</div><div className="site-num-val" style={{color:'var(--blue)'}}>{detail.total_km}km</div></div>
+          </div>
+          {/* 支給 */}
+          <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',marginBottom:6}}>支給内訳</div>
+          {[
+            ['基本給', `${detail.days}日 × ${fmt(detail.emp.daily_wage)}`, detail.base_pay, 'var(--accent)'],
+            ['時間外手当', `${detail.ot_h}h × ¥2,100`, detail.ot_pay, 'var(--purple)'],
+            ['出張手当', `${detail.trip_days}日 × ${fmt(detail.emp.trip_allowance)}`, detail.trip_pay, 'var(--orange, #f6a623)'],
+            ['移動手当', `${detail.total_km}km × ¥14`, detail.move_pay, 'var(--blue)'],
+            ['運転手当', `${detail.total_km}km × ¥4`, detail.drive_pay, 'var(--blue)'],
+          ].map(([label,note,val,color])=>(
+            <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+              <div>
+                <span style={{fontSize:13}}>{label}</span>
+                <span style={{fontSize:10,color:'var(--mist)',marginLeft:8}}>{note}</span>
+              </div>
+              <span style={{fontFamily:'DM Mono,monospace',color,fontWeight:600}}>{fmt(val)}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',marginTop:4,borderTop:'2px solid rgba(255,255,255,0.15)'}}>
+            <span style={{fontWeight:700,fontSize:15}}>総支給額</span>
+            <span style={{fontFamily:'DM Mono,monospace',fontSize:20,fontWeight:700,color:'var(--green)'}}>{fmt(detail.total_pay)}</span>
+          </div>
+          {/* 日報一覧 */}
+          {detail.logs.length>0&&<>
+            <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',margin:'14px 0 6px'}}>日報明細</div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>日付</th><th>現場</th><th>残業</th><th>運転</th><th>出張</th></tr></thead>
+              <tbody>{detail.logs.map(l=>{
+                const akm=l.drive_type==='往復'?(l.drive_km||0)*2:l.drive_type==='片道'?(l.drive_km||0):0;
+                return <tr key={l.id}>
+                  <td className="mono">{l.date}</td>
+                  <td style={{fontSize:11}}>{l.site_name||l.site_id}</td>
+                  <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
+                  <td style={{fontSize:11,color:'var(--blue)'}}>{akm>0?`${l.drive_type} ${akm}km`:'—'}</td>
+                  <td>{l.is_trip?<span className="badge badge-orange" style={{fontSize:9}}>出張</span>:'—'}</td>
+                </tr>;
+              })}</tbody>
+            </table></div>
+          </>}
+        </div>
+      </div>}
     </>
   );
 }
 
-// ── SubconPage ────────────────────────────────────────────────────────────
 function SubconPage({data,token,reload,showToast}){
   const [form,setForm]=useState({date:today(),vendor:'',siteId:data.sites[0]?.id||'',qty:1,unit:'人工',price:'',status:'未払'});
   const [saving,setSaving]=useState(false);
@@ -911,12 +1115,14 @@ function SubconPage({data,token,reload,showToast}){
 }
 
 // ── MasterPage ────────────────────────────────────────────────────────────
+// ── MasterPage ────────────────────────────────────────────────────────────
 function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
-  const [ef,setEf]=useState({id:'',name:'',type:'従業員',daily_wage:'',password:'',role:'employee'});
+  const [ef,setEf]=useState({id:'',name:'',type:'従業員',daily_wage:'',trip_allowance:'',password:'',role:'employee'});
   const [sf,setSf]=useState({id:'',name:'',client:'',site_type:'請負',contract:'',manday_price:'',start_date:'',end_date:'',status:'進行中'});
+  const [kmForm,setKmForm]=useState({empId:'',siteId:'',km:''});
+  const [wageEdit,setWageEdit]=useState({empId:'',wage:'',trip:''});
   const [pwChange,setPwChange]=useState({empId:'',newPw:''});
-  const [wageEdit,setWageEdit]=useState({empId:'',wage:''});
   const [saving,setSaving]=useState(false);
 
   const addEmp=async()=>{
@@ -924,7 +1130,7 @@ function MasterPage({data,token,reload,showToast,user}){
     setSaving(true);const res=await api.post('/employees',ef,token);setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('従業員を追加しました ✓');reload();
-    setEf({id:'',name:'',type:'従業員',daily_wage:'',password:'',role:'employee'});
+    setEf({id:'',name:'',type:'従業員',daily_wage:'',trip_allowance:'',password:'',role:'employee'});
   };
   const delEmp=async(id)=>{await api.del(`/employees/${id}`,token);showToast('削除しました');reload();};
 
@@ -937,6 +1143,25 @@ function MasterPage({data,token,reload,showToast,user}){
   };
   const delSite=async(id)=>{await api.del(`/sites/${id}`,token);showToast('削除しました');reload();};
 
+  const saveKm=async()=>{
+    if(!kmForm.empId||!kmForm.siteId||kmForm.km===''){showToast('従業員・現場・kmを入力してください','error');return;}
+    const res=await api.post('/emp_site_km',{empId:kmForm.empId,siteId:kmForm.siteId,km:+kmForm.km},token);
+    if(res.error){showToast(res.error,'error');return;}
+    showToast('距離を設定しました ✓');setKmForm(f=>({...f,km:''}));reload();
+  };
+  const delKm=async(id)=>{await api.del(`/emp_site_km/${id}`,token);showToast('削除しました');reload();};
+
+  const changeWage=async()=>{
+    if(!wageEdit.empId){showToast('対象を選択してください','error');return;}
+    const body={};
+    if(wageEdit.wage!=='') body.daily_wage=+wageEdit.wage;
+    if(wageEdit.trip!=='') body.trip_allowance=+wageEdit.trip;
+    if(!Object.keys(body).length){showToast('変更する値を入力してください','error');return;}
+    const res=await api.put(`/employees/${wageEdit.empId}`,body,token);
+    if(res.error){showToast(res.error,'error');return;}
+    showToast('更新しました ✓');reload();setWageEdit({empId:'',wage:'',trip:''});
+  };
+
   const changePw=async()=>{
     if(!pwChange.empId||!pwChange.newPw){showToast('対象とパスワードを入力してください','error');return;}
     const res=await api.put(`/employees/${pwChange.empId}`,{password:pwChange.newPw},token);
@@ -944,22 +1169,17 @@ function MasterPage({data,token,reload,showToast,user}){
     showToast('パスワードを変更しました ✓');setPwChange({empId:'',newPw:''});
   };
 
-  const changeWage=async()=>{
-    if(!wageEdit.empId||wageEdit.wage===''){showToast('対象と日給を入力してください','error');return;}
-    const res=await api.put(`/employees/${wageEdit.empId}`,{daily_wage:+wageEdit.wage},token);
-    if(res.error){showToast(res.error,'error');return;}
-    showToast('日給を変更しました ✓');reload();setWageEdit({empId:'',wage:''});
-  };
-
   return (
     <>
-      <div className="topbar"><div><div className="page-title">マスタ設定</div><div className="page-sub">従業員・現場・給与・パスワード管理</div></div></div>
+      <div className="topbar"><div><div className="page-title">マスタ設定</div><div className="page-sub">従業員・現場・給与・距離・パスワード</div></div></div>
       <div className="tabs">
-        {[['emp','従業員'],['site','現場'],['wage','日給変更'],['pw','パスワード']].map(([k,l])=>(
+        {[['emp','従業員'],['site','現場'],['km','距離設定'],['wage','給与'],['pw','パスワード']].map(([k,l])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={()=>setTab(k)}>{l}</button>
         ))}
       </div>
       <div className="content">
+
+        {/* 従業員タブ */}
         {tab==='emp'&&<>
           <div className="card">
             <div className="card-header"><div className="card-title">従業員追加</div></div>
@@ -973,19 +1193,21 @@ function MasterPage({data,token,reload,showToast,user}){
                 </select>
               </div>
               <div className="form-group"><label className="form-label">日給（円）</label><input type="number" className="form-input" placeholder="15000" value={ef.daily_wage} onChange={e=>setEf(f=>({...f,daily_wage:e.target.value}))}/></div>
+              <div className="form-group"><label className="form-label">出張手当（円/日）</label><input type="number" className="form-input" placeholder="3500" value={ef.trip_allowance} onChange={e=>setEf(f=>({...f,trip_allowance:e.target.value}))}/></div>
               <div className="form-group fg-full"><label className="form-label">初期パスワード</label><input type="text" className="form-input" placeholder="password1234" value={ef.password} onChange={e=>setEf(f=>({...f,password:e.target.value}))}/></div>
             </div>
-            <div className="submit-bar"><span className="submit-info">代表は日給0円で登録（給与計算なし・人工にはカウントされます）</span><button className="btn-submit" onClick={addEmp} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
+            <div className="submit-bar"><span className="submit-info">代表は日給0円で登録</span><button className="btn-submit" onClick={addEmp} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
             <div className="card-header"><div className="card-title">従業員一覧</div></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>氏名</th><th>権限</th><th>日給</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>氏名</th><th>権限</th><th>日給</th><th>出張手当</th><th></th></tr></thead>
               <tbody>{data.employees.map(e=>(
                 <tr key={e.id}>
                   <td className="mono">{e.id}</td><td>{e.name}</td>
                   <td><span className={`badge badge-${e.role==='manager'?'orange':'blue'}`}>{e.role==='manager'?'代表':'従業員'}</span></td>
                   <td className="mono">{e.daily_wage>0?fmt(e.daily_wage):'無給'}</td>
+                  <td className="mono">{e.trip_allowance>0?fmt(e.trip_allowance):'—'}</td>
                   <td>{e.id!==user.empId&&<button className="btn btn-danger btn-sm" onClick={()=>delEmp(e.id)}>削除</button>}</td>
                 </tr>
               ))}</tbody>
@@ -993,6 +1215,7 @@ function MasterPage({data,token,reload,showToast,user}){
           </div>
         </>}
 
+        {/* 現場タブ */}
         {tab==='site'&&<>
           <div className="card">
             <div className="card-header"><div className="card-title">現場追加</div></div>
@@ -1020,16 +1243,15 @@ function MasterPage({data,token,reload,showToast,user}){
             <div className="submit-bar"><span></span><button className="btn-submit" onClick={addSite} disabled={saving}>{saving?'保存中…':'追加 ＋'}</button></div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細変更は「現場集計」→「編集」から</span></div>
+            <div className="card-header"><div className="card-title">現場一覧</div><span style={{fontSize:11,color:'var(--mist)'}}>詳細は「現場集計」→「編集」から</span></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額/単価</th><th>期間</th><th>状況</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>現場名</th><th>元請</th><th>タイプ</th><th>金額</th><th>状況</th><th></th></tr></thead>
               <tbody>{data.sites.map(s=>(
                 <tr key={s.id}>
                   <td className="mono">{s.id}</td><td>{s.name}</td>
                   <td style={{color:'var(--mist)'}}>{s.client}</td>
                   <td><span className={`badge badge-${s.site_type==='応援'?'purple':'orange'}`}>{s.site_type||'請負'}</span></td>
                   <td className="mono">{s.site_type==='応援'?fmt(s.manday_price)+'/人工':fmt(s.contract)}</td>
-                  <td style={{fontSize:11,color:'var(--mist)'}}>{s.start_date||'—'}{s.end_date?`〜${s.end_date}`:''}</td>
                   <td><span className={`badge badge-${s.status==='進行中'?'orange':s.status==='完了'?'green':'blue'}`}>{s.status}</span></td>
                   <td><button className="btn btn-danger btn-sm" onClick={()=>delSite(s.id)}>削除</button></td>
                 </tr>
@@ -1038,44 +1260,75 @@ function MasterPage({data,token,reload,showToast,user}){
           </div>
         </>}
 
+        {/* 距離設定タブ */}
+        {tab==='km'&&<>
+          <div className="card">
+            <div className="card-header"><div className="card-title">距離設定</div><span className="badge badge-blue">従業員×現場</span></div>
+            <div style={{padding:'6px 18px 4px',fontSize:11,color:'var(--mist)'}}>片道kmを設定。日報で片道/往復を選ぶと自動的にこの距離が使用されます。</div>
+            <div className="form-grid">
+              <div className="form-group"><label className="form-label">従業員</label>
+                <select className="form-input" value={kmForm.empId} onChange={e=>setKmForm(f=>({...f,empId:e.target.value}))}>
+                  <option value="">選択してください</option>
+                  {data.employees.map(e=><option key={e.id} value={e.id}>{e.name}（{e.id}）</option>)}
+                </select>
+              </div>
+              <div className="form-group"><label className="form-label">現場</label>
+                <select className="form-input" value={kmForm.siteId} onChange={e=>setKmForm(f=>({...f,siteId:e.target.value}))}>
+                  <option value="">選択してください</option>
+                  {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group"><label className="form-label">片道距離（km）</label>
+                <input type="number" className="form-input" placeholder="20" min="0" step="0.5"
+                  value={kmForm.km} onChange={e=>setKmForm(f=>({...f,km:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="submit-bar"><span></span><button className="btn-submit" onClick={saveKm}>設定する</button></div>
+          </div>
+          <div className="card">
+            <div className="card-header"><div className="card-title">距離設定一覧</div></div>
+            {(data.emp_site_km||[]).length===0
+              ?<div className="empty"><div className="empty-icon">📍</div>距離が設定されていません</div>
+              :<div className="table-wrap"><table>
+                <thead><tr><th>従業員</th><th>現場</th><th>片道km</th><th>往復km</th><th></th></tr></thead>
+                <tbody>{(data.emp_site_km||[]).map(r=>(
+                  <tr key={r.id}>
+                    <td>{r.emp_name||r.emp_id}</td>
+                    <td><span className="badge badge-orange">{r.site_id}</span> {r.site_name||''}</td>
+                    <td className="mono" style={{color:'var(--blue)'}}>{r.one_way_km}km</td>
+                    <td className="mono" style={{color:'var(--mist)'}}>{r.one_way_km*2}km</td>
+                    <td><button className="btn btn-danger btn-sm" onClick={()=>delKm(r.id)}>削除</button></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>}
+          </div>
+        </>}
+
+        {/* 給与タブ */}
         {tab==='wage'&&<>
           <div className="card">
-            <div className="card-header"><div className="card-title">日給変更</div><span className="badge badge-orange">代表のみ操作可</span></div>
-            <div style={{padding:'6px 18px 4px',fontSize:11,color:'var(--mist)'}}>
-              ※ 日給は本人も確認できますが、他の従業員には表示されません
-            </div>
+            <div className="card-header"><div className="card-title">日給・出張手当の変更</div><span className="badge badge-orange">代表のみ</span></div>
             <div className="form-grid">
-              <div className="form-group"><label className="form-label">対象従業員</label>
+              <div className="form-group fg-full"><label className="form-label">対象従業員</label>
                 <select className="form-input" value={wageEdit.empId} onChange={e=>setWageEdit(f=>({...f,empId:e.target.value}))}>
                   <option value="">選択してください</option>
                   {data.employees.filter(e=>e.role!=='manager').map(e=>(
-                    <option key={e.id} value={e.id}>{e.name}（{e.id}）現在: {e.daily_wage>0?fmt(e.daily_wage):'未設定'}</option>
+                    <option key={e.id} value={e.id}>{e.name}（{e.id}）日給:{e.daily_wage>0?fmt(e.daily_wage):'未設定'} 出張:{e.trip_allowance>0?fmt(e.trip_allowance):'未設定'}</option>
                   ))}
                 </select>
               </div>
               <div className="form-group"><label className="form-label">新しい日給（円）</label>
-                <input type="number" className="form-input" placeholder="15000" value={wageEdit.wage} onChange={e=>setWageEdit(f=>({...f,wage:e.target.value}))}/>
+                <input type="number" className="form-input" placeholder="変更しない場合は空欄" value={wageEdit.wage} onChange={e=>setWageEdit(f=>({...f,wage:e.target.value}))}/>
+              </div>
+              <div className="form-group"><label className="form-label">出張手当（円/日）</label>
+                <input type="number" className="form-input" placeholder="変更しない場合は空欄" value={wageEdit.trip} onChange={e=>setWageEdit(f=>({...f,trip:e.target.value}))}/>
               </div>
             </div>
-            <div className="submit-bar"><span></span>
-              <button className="btn-submit" onClick={changeWage}>日給を変更する</button>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-header"><div className="card-title">従業員別日給一覧</div></div>
-            <div className="table-wrap"><table>
-              <thead><tr><th>ID</th><th>氏名</th><th>日給</th></tr></thead>
-              <tbody>{data.employees.filter(e=>e.role!=='manager').map(e=>(
-                <tr key={e.id}>
-                  <td className="mono">{e.id}</td>
-                  <td>{e.name}</td>
-                  <td className="mono" style={{color:'var(--green)'}}>{e.daily_wage>0?fmt(e.daily_wage):'未設定'}</td>
-                </tr>
-              ))}</tbody>
-            </table></div>
+            <div className="submit-bar"><span></span><button className="btn-submit" onClick={changeWage}>変更する</button></div>
           </div>
         </>}
 
+        {/* パスワードタブ */}
         {tab==='pw'&&<>
           <div className="card">
             <div className="card-header"><div className="card-title">パスワード変更</div></div>
@@ -1096,6 +1349,7 @@ function MasterPage({data,token,reload,showToast,user}){
             </div>
           </div>
         </>}
+
       </div>
     </>
   );
