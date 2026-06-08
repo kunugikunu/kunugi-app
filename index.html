@@ -509,6 +509,34 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
     showToast('日報を保存しました ✓');reload();
     setForm(f=>({...f,overtime_h:'',drive_type:'なし',move_type:'なし',is_trip:false,memo:''}));
   };
+  const [logSearch,setLogSearch]=useState('');
+  const [logSort,setLogSort]=useState('date_desc');
+
+  const filteredLogs = useMemo(()=>{
+    let logs=[...data.logs];
+    // 検索フィルター
+    if(logSearch.trim()){
+      const q=logSearch.trim().toLowerCase();
+      logs=logs.filter(l=>
+        (l.date||'').includes(q) ||
+        (l.emp_name||l.emp_id||'').toLowerCase().includes(q) ||
+        (l.site_name||'').toLowerCase().includes(q) ||
+        (l.site_id||'').toLowerCase().includes(q) ||
+        (l.memo||'').toLowerCase().includes(q)
+      );
+    }
+    // 並べ替え
+    logs.sort((a,b)=>{
+      if(logSort==='date_desc') return (b.date||'').localeCompare(a.date||'')||b.id-a.id;
+      if(logSort==='date_asc')  return (a.date||'').localeCompare(b.date||'')||a.id-b.id;
+      if(logSort==='name_asc')  return (a.emp_name||a.emp_id||'').localeCompare(b.emp_name||b.emp_id||'');
+      if(logSort==='name_desc') return (b.emp_name||b.emp_id||'').localeCompare(a.emp_name||a.emp_id||'');
+      if(logSort==='site_asc')  return (a.site_name||a.site_id||'').localeCompare(b.site_name||b.site_id||'');
+      return 0;
+    });
+    return logs;
+  },[data.logs,logSearch,logSort]);
+
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
   const [editLog,setEditLog]=useState(null);
   const [editSaving,setEditSaving]=useState(false);
@@ -614,18 +642,39 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
 
         <div className="card">
           <div className="card-header"><div className="card-title">日報一覧</div><span className="badge badge-blue">{data.logs.length}件</span></div>
+          {/* 検索・並べ替えバー */}
+          <div style={{padding:'10px 18px',display:'flex',gap:8,flexWrap:'wrap',borderBottom:'1px solid var(--border)'}}>
+            <input className="form-input" style={{flex:'1 1 160px',minWidth:120}}
+              placeholder="氏名・現場名・日付で検索…"
+              value={logSearch} onChange={e=>setLogSearch(e.target.value)}/>
+            <select className="form-input" style={{width:'auto'}} value={logSort} onChange={e=>setLogSort(e.target.value)}>
+              <option value="date_desc">日付（新しい順）</option>
+              <option value="date_asc">日付（古い順）</option>
+              <option value="name_asc">氏名（昇順）</option>
+              <option value="name_desc">氏名（降順）</option>
+              <option value="site_asc">現場（昇順）</option>
+            </select>
+            {logSearch&&<button className="btn btn-ghost btn-sm" onClick={()=>setLogSearch('')}>✕ クリア</button>}
+          </div>
+          {/* 件数表示 */}
+          {logSearch&&<div style={{padding:'6px 18px',fontSize:11,color:'var(--mist)'}}>
+            {filteredLogs.length}件 / {data.logs.length}件
+          </div>}
           {data.logs.length===0
             ? <div className="empty"><div className="empty-icon">📋</div>日報がありません</div>
-            : <div className="table-wrap"><table>
-              <thead><tr><th>日付</th><th>氏名</th><th>現場</th><th>残業</th><th>運転</th><th>移動</th><th>出張</th><th>メモ</th><th></th></tr></thead>
-              <tbody>{data.logs.map(l=>{
+            : filteredLogs.length===0
+              ? <div className="empty"><div className="empty-icon">🔍</div>該当する日報がありません</div>
+              : <div className="table-wrap"><table>
+              <thead><tr><th>日付</th><th>氏名</th><th>現場ID</th><th>現場名</th><th>残業</th><th>運転</th><th>移動</th><th>出張</th><th>メモ</th><th></th></tr></thead>
+              <tbody>{filteredLogs.map(l=>{
                 const dkm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
                 const mt = l.move_type||'なし';
                 const mkm = mt==='往復'?(l.drive_km||0)*2 : mt==='片道'?(l.drive_km||0):0;
                 return <tr key={l.id}>
                   <td className="mono">{l.date}</td>
-                  <td>{l.emp_name||l.emp_id}</td>
+                  <td style={{fontWeight:500}}>{l.emp_name||l.emp_id}</td>
                   <td><span className="badge badge-orange">{l.site_id}</span></td>
+                  <td style={{fontSize:11,color:'var(--mist)'}}>{l.site_name||'—'}</td>
                   <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
                   <td style={{fontSize:11,color:'var(--blue)'}}>{dkm>0?`${l.drive_type} ${dkm}km`:'—'}</td>
                   <td style={{fontSize:11,color:'var(--green)'}}>{mkm>0?`${mt} ${mkm}km`:'—'}</td>
