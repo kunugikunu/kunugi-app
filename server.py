@@ -369,36 +369,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.auth(mgr=True): return
                 self.send_json(rows(con.execute("SELECT id,name,type,daily_wage,trip_allowance,role,created_at FROM employees ORDER BY id").fetchall()))
 
-            elif path=="/api/site_files":
-                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                # multipart/form-data パース
-                content_type = self.headers.get("Content-Type","")
-                if "multipart/form-data" not in content_type:
-                    self.send_json({"error":"multipart/form-data が必要です"},400); return
-                import cgi
-                environ = {
-                    "REQUEST_METHOD":"POST",
-                    "CONTENT_TYPE":content_type,
-                    "CONTENT_LENGTH":self.headers.get("Content-Length",0),
-                }
-                form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ=environ)
-                site_id   = form.getvalue("site_id","")
-                file_type = form.getvalue("file_type","")
-                if "file" not in form or not site_id:
-                    self.send_json({"error":"site_id とファイルが必要です"},400); return
-                file_item    = form["file"]
-                original_name = file_item.filename or "file"
-                file_data    = file_item.file.read()
-                # 保存先
-                safe_name = secrets.token_hex(8) + os.path.splitext(original_name)[1]
-                save_dir  = os.path.join(FILES_DIR, site_id)
-                os.makedirs(save_dir, exist_ok=True)
-                with open(os.path.join(save_dir, safe_name),"wb") as f: f.write(file_data)
-                cur=con.execute("INSERT INTO site_files (site_id,file_name,file_type,original_name,file_size,uploaded_by) VALUES (?,?,?,?,?,?)",
-                    (site_id,safe_name,file_type,original_name,len(file_data),s["emp_id"]))
-                con.commit()
-                self.send_json(row(con.execute("SELECT * FROM site_files WHERE id=?",(cur.lastrowid,)).fetchone()),201)
-
             elif path=="/api/sites":
                 if not self.auth(): return
                 r=con.execute("""SELECT s.*,c.name support_company_name
@@ -447,6 +417,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.auth(): return
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
+
+            elif path=="/api/site_files":
+                auth_sf=self.auth()
+                if not auth_sf: return
+                sid=qs.get("site_id",[""])[0]
+                if sid:
+                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
+                else:
+                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
+                self.send_json(rows(r))
 
             elif path=="/api/extra_works":
                 if not self.auth(mgr=True): return
