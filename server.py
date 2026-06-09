@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """㓛刀工業 作業管理システム"""
 
-import sqlite3, json, os, hashlib, secrets, time
+import sqlite3, json, os, hashlib, secrets, time, mimetypes
+from io import BytesIO
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -10,6 +11,8 @@ PORT    = int(os.environ.get("PORT", 8000))
 DB_PATH = "/data/kukito.db"
 
 SESSIONS    = {}
+FILES_DIR   = os.path.join(os.path.dirname(DB_PATH), "files")
+os.makedirs(FILES_DIR, exist_ok=True)
 SESSION_TTL = 60 * 60 * 24 * 7
 
 # 手当単価（固定）
@@ -88,6 +91,17 @@ def init_db():
         note TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS site_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_type TEXT DEFAULT '',
+        original_name TEXT NOT NULL,
+        file_size INTEGER DEFAULT 0,
+        uploaded_by TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (site_id) REFERENCES sites(id)
+    );
     CREATE TABLE IF NOT EXISTS subcons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL, vendor TEXT NOT NULL, site_id TEXT NOT NULL,
@@ -154,6 +168,14 @@ def init_db():
         cur.executemany("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)", [
             (td,"A社","S001",3,"人工",25000,"未払"),
         ])
+    if "site_files" not in tables:
+        cur.execute("""CREATE TABLE site_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_id TEXT NOT NULL, file_name TEXT NOT NULL,
+            file_type TEXT DEFAULT '', original_name TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')))""")
+
     # companies テーブルのサンプルは挿入しない（実データ保護）
     con.commit(); con.close()
     print(f"✅ DB初期化完了: {DB_PATH}")
@@ -274,6 +296,29 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("","/"): self.send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),"index.html")); return
 
+        # ファイルダウンロード: /files/{id}
+        parts_path = path.strip("/").split("/")
+        if len(parts_path)==2 and parts_path[0]=="files":
+            s=get_session(self.token())
+            if not s: self.send_json({"error":"ログインが必要です"},401); return
+            con2=get_db()
+            try:
+                r=con2.execute("SELECT * FROM site_files WHERE id=?",(parts_path[1],)).fetchone()
+                if not r: self.send_json({"error":"Not found"},404); return
+                fpath=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
+                if not os.path.exists(fpath): self.send_json({"error":"ファイルが見つかりません"},404); return
+                with open(fpath,"rb") as f: data=f.read()
+                mime=mimetypes.guess_type(r["original_name"])[0] or "application/octet-stream"
+                self.send_response(200)
+                self.send_header("Content-Type",mime)
+                self.send_header("Content-Length",len(data))
+                self.send_header("Content-Disposition",f'attachment; filename="{r["original_name"]}"')
+                self.send_header("Access-Control-Allow-Origin","*")
+                self.end_headers()
+                self.wfile.write(data)
+            finally: con2.close()
+            return
+
         con = get_db()
         try:
             if path=="/api/me":
@@ -285,6 +330,36 @@ class Handler(BaseHTTPRequestHandler):
             elif path=="/api/employees":
                 if not self.auth(mgr=True): return
                 self.send_json(rows(con.execute("SELECT id,name,type,daily_wage,trip_allowance,role,created_at FROM employees ORDER BY id").fetchall()))
+
+            elif path=="/api/site_files":
+                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
+                # multipart/form-data パース
+                content_type = self.headers.get("Content-Type","")
+                if "multipart/form-data" not in content_type:
+                    self.send_json({"error":"multipart/form-data が必要です"},400); return
+                import cgi
+                environ = {
+                    "REQUEST_METHOD":"POST",
+                    "CONTENT_TYPE":content_type,
+                    "CONTENT_LENGTH":self.headers.get("Content-Length",0),
+                }
+                form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ=environ)
+                site_id   = form.getvalue("site_id","")
+                file_type = form.getvalue("file_type","")
+                if "file" not in form or not site_id:
+                    self.send_json({"error":"site_id とファイルが必要です"},400); return
+                file_item    = form["file"]
+                original_name = file_item.filename or "file"
+                file_data    = file_item.file.read()
+                # 保存先
+                safe_name = secrets.token_hex(8) + os.path.splitext(original_name)[1]
+                save_dir  = os.path.join(FILES_DIR, site_id)
+                os.makedirs(save_dir, exist_ok=True)
+                with open(os.path.join(save_dir, safe_name),"wb") as f: f.write(file_data)
+                cur=con.execute("INSERT INTO site_files (site_id,file_name,file_type,original_name,file_size,uploaded_by) VALUES (?,?,?,?,?,?)",
+                    (site_id,safe_name,file_type,original_name,len(file_data),s["emp_id"]))
+                con.commit()
+                self.send_json(row(con.execute("SELECT * FROM site_files WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
             elif path=="/api/sites":
                 if not self.auth(): return
@@ -333,6 +408,16 @@ class Handler(BaseHTTPRequestHandler):
             elif path=="/api/companies":
                 if not self.auth(): return
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
+
+            elif path=="/api/site_files":
+                s=self.auth()
+                if not s: return
+                sid=qs.get("site_id",[""])[0]
+                if sid:
+                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
+                else:
+                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
+                self.send_json(rows(r))
 
             elif path=="/api/extra_works":
                 if not self.auth(mgr=True): return
@@ -418,6 +503,10 @@ class Handler(BaseHTTPRequestHandler):
                     WHERE {' AND '.join(conds)} ORDER BY dl.date""",(vals)).fetchall())
                 emp  = row(con.execute("SELECT * FROM employees WHERE id=?",(emp_id,)).fetchone())
                 self.send_json({"emp": emp, "logs": logs})
+
+            elif len(parsed.path.strip("/").split("/"))==2 and parsed.path.strip("/").split("/")[0]=="api" and parsed.path.strip("/").split("/")[1]=="files":
+                # /api/files/{id} は別処理
+                self.send_json({"error":"Not found"},404)
 
             else: self.send_json({"error":"Not found"},404)
 
@@ -625,6 +714,14 @@ class Handler(BaseHTTPRequestHandler):
         con=get_db()
         try:
             if len(parts)==3:
+                if parts[1]=="site_files":
+                    if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
+                    r=con.execute("SELECT * FROM site_files WHERE id=?",(parts[2],)).fetchone()
+                    if r:
+                        fpath=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
+                        if os.path.exists(fpath): os.remove(fpath)
+                        con.execute("DELETE FROM site_files WHERE id=?",(parts[2],)); con.commit()
+                    self.send_json({"deleted":parts[2]}); return
                 tmap={"employees":"employees","sites":"sites","logs":"daily_logs",
                       "subcons":"subcons","extra_works":"extra_works","emp_site_km":"employee_site_km",
                       "companies":"companies"}
