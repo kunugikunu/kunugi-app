@@ -298,9 +298,9 @@ function App(){
     setLoading(true);
     try{
       const isMgr=user.role==='manager';
-      const base=[api.get('/sites',token),api.get('/logs',token),api.get('/companies',token)];
+      const base=[api.get('/sites',token),api.get('/logs',token),api.get('/companies',token),api.get('/site_files',token)];
       const mgr=isMgr?[api.get('/employees',token),api.get('/subcons',token),api.get('/extra_works',token),api.get('/summary',token)]:[];
-      const [sites,logs,companies,...rest]=await Promise.all([...base,...mgr]);
+      const [sites,logs,companies,site_files,...rest]=await Promise.all([...base,...mgr]);
       const [employees,subcons,extra_works,summary]=isMgr?rest:[[],[],[],[]];
       setData({
         employees:Array.isArray(employees)?employees:[],
@@ -308,6 +308,7 @@ function App(){
         logs:Array.isArray(logs)?logs:[],
         subcons:Array.isArray(subcons)?subcons:[],
         extra_works:Array.isArray(extra_works)?extra_works:[],
+        site_files:Array.isArray(site_files)?site_files:[],
         summary:Array.isArray(summary)?summary:[],
         companies:Array.isArray(companies)?companies:[],
         salary:[],
@@ -334,6 +335,7 @@ function App(){
     {key:'sites',    icon:'🏗', label:'現場集計',       mgr:true},
     {key:'salary',   icon:'💴',label:'給与',           mgr:true},
     {key:'subcon',   icon:'🔧',label:'外注',           mgr:true},
+    {key:'files',    icon:'📁',label:'ファイル',       all:true},
     {key:'master',   icon:'⚙', label:'設定',           mgr:true},
   ].filter(n=>n.all||(n.mgr&&isMgr));
 
@@ -381,6 +383,7 @@ function App(){
         {page==='sites'    &&<SitesPage data={data} token={token} reload={reload} showToast={showToast}/>}
         {page==='salary'   &&<SalaryPage data={data} user={user} isMgr={isMgr} token={token} showToast={showToast}/>}
         {page==='subcon'   &&<SubconPage data={data} token={token} reload={reload} showToast={showToast}/>}
+        {page==='files'    &&<FilesPage data={data} user={user} token={token} isMgr={isMgr} reload={reload} showToast={showToast}/>}
         {page==='master'   &&<MasterPage data={data} token={token} reload={reload} showToast={showToast} user={user}/>}
       </div>
 
@@ -1342,7 +1345,166 @@ function SubconPage({data,token,reload,showToast}){
   );
 }
 
-// ── MasterPage ────────────────────────────────────────────────────────────
+// ── FilesPage ─────────────────────────────────────────────────────────────
+function FilesPage({data,user,token,isMgr,reload,showToast}){
+  const [selectedSite,setSelectedSite]=useState('');
+  const [fileType,setFileType]=useState('');
+  const [uploading,setUploading]=useState(false);
+  const [deleting,setDeleting]=useState(null);
+  const fileRef=useRef(null);
+
+  // 表示するファイル一覧
+  const files=useMemo(()=>{
+    let list=data.site_files||[];
+    if(selectedSite) list=list.filter(f=>f.site_id===selectedSite);
+    return list.sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  },[data.site_files,selectedSite]);
+
+  const upload=async()=>{
+    const f=fileRef.current?.files[0];
+    if(!f){showToast('ファイルを選択してください','error');return;}
+    if(!selectedSite){showToast('現場を選択してください','error');return;}
+    if(f.size>50*1024*1024){showToast('50MB以下のファイルを選択してください','error');return;}
+    setUploading(true);
+    const fd=new FormData();
+    fd.append('file',f);
+    fd.append('site_id',selectedSite);
+    fd.append('file_type',fileType||'その他');
+    try{
+      const res=await fetch('/api/site_files',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${token}`},
+        body:fd,
+      });
+      const d=await res.json();
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(`${f.name} をアップロードしました ✓`);
+      fileRef.current.value='';setFileType('');reload();
+    }catch(e){showToast('アップロードに失敗しました','error');}
+    finally{setUploading(false);}
+  };
+
+  const download=async(file)=>{
+    const res=await fetch(`/files/${file.id}`,{headers:{Authorization:`Bearer ${token}`}});
+    if(!res.ok){showToast('ダウンロードに失敗しました','error');return;}
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=file.original_name;a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const del=async(id)=>{
+    setDeleting(id);
+    await api.del(`/site_files/${id}`,token);
+    showToast('削除しました');setDeleting(null);reload();
+  };
+
+  const fmtSize=b=>{if(b<1024)return b+'B';if(b<1024*1024)return (b/1024).toFixed(1)+'KB';return (b/1024/1024).toFixed(1)+'MB';};
+  const fileIcon=t=>{
+    const l=(t||'').toLowerCase();
+    if(l.includes('図面')||l.includes('加工')) return '📐';
+    if(l.includes('注文')||l.includes('契約')) return '📋';
+    if(l.includes('写真')||l.includes('画像')) return '🖼';
+    return '📄';
+  };
+
+  // 現場ごとにグループ化
+  const grouped=useMemo(()=>{
+    const g={};
+    files.forEach(f=>{
+      if(!g[f.site_id]) g[f.site_id]={site_name:f.site_name||f.site_id, files:[]};
+      g[f.site_id].files.push(f);
+    });
+    return Object.entries(g);
+  },[files]);
+
+  return (
+    <>
+      <div className="topbar">
+        <div><div className="page-title">現場ファイル</div>
+          <div className="page-sub">図面・注文書・加工図などを現場ごとに管理</div>
+        </div>
+      </div>
+      <div className="content">
+        {/* アップロードカード（代表のみ） */}
+        {isMgr&&<div className="card">
+          <div className="card-header"><div className="card-title">ファイルをアップロード</div></div>
+          <div className="form-grid">
+            <div className="form-group"><label className="form-label">現場</label>
+              <select className="form-input" value={selectedSite} onChange={e=>setSelectedSite(e.target.value)}>
+                <option value="">選択してください</option>
+                {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">種類（例：図面、注文書）</label>
+              <input className="form-input" placeholder="図面" value={fileType} onChange={e=>setFileType(e.target.value)}/>
+            </div>
+            <div className="form-group fg-full"><label className="form-label">ファイル（PDF・画像など、最大50MB）</label>
+              <input type="file" ref={fileRef} className="form-input" accept=".pdf,.png,.jpg,.jpeg,.gif,.xlsx,.docx"/>
+            </div>
+          </div>
+          <div className="submit-bar">
+            <span className="submit-info">PDF・画像・Excel・Word対応</span>
+            <button className="btn-submit" onClick={upload} disabled={uploading||!selectedSite}>
+              {uploading?'アップロード中…':'アップロード ↑'}
+            </button>
+          </div>
+        </div>}
+
+        {/* 絞り込み */}
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <select className="form-input" style={{width:'auto'}} value={selectedSite} onChange={e=>setSelectedSite(e.target.value)}>
+            <option value="">全現場</option>
+            {data.sites.map(s=><option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
+          </select>
+          <span style={{fontSize:11,color:'var(--mist)'}}>{files.length}件</span>
+        </div>
+
+        {/* ファイル一覧 */}
+        {files.length===0
+          ?<div className="card"><div className="empty"><div className="empty-icon">📁</div>
+            {selectedSite?'この現場にファイルがありません':'ファイルがありません'}
+          </div></div>
+          :grouped.map(([sid,{site_name,files:sFiles}])=>(
+            <div className="card" key={sid}>
+              <div className="card-header">
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontWeight:700}}>{site_name}</span>
+                  <span className="site-id">{sid}</span>
+                  <span className="badge badge-blue">{sFiles.length}件</span>
+                </div>
+              </div>
+              <div style={{padding:'8px 18px'}}>
+                {sFiles.map(f=>(
+                  <div key={f.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+                    <div style={{fontSize:24,flexShrink:0}}>{fileIcon(f.file_type)}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:500,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.original_name}</div>
+                      <div style={{display:'flex',gap:10,marginTop:2,fontSize:11,color:'var(--mist)'}}>
+                        {f.file_type&&<span className="badge badge-blue" style={{fontSize:10}}>{f.file_type}</span>}
+                        <span>{fmtSize(f.file_size)}</span>
+                        <span>{f.created_at?.slice(0,10)}</span>
+                        <span>{f.uploaded_by}</span>
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:6,flexShrink:0}}>
+                      <button className="btn btn-accent btn-sm" onClick={()=>download(f)}>↓ DL</button>
+                      {isMgr&&<button className="btn btn-danger btn-sm" onClick={()=>del(f.id)} disabled={deleting===f.id}>
+                        {deleting===f.id?'…':'削除'}
+                      </button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </>
+  );
+}
+
 // ── MasterPage ────────────────────────────────────────────────────────────
 function MasterPage({data,token,reload,showToast,user}){
   const [tab,setTab]=useState('emp');
