@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """㓛刀工業 作業管理システム"""
 
-import sqlite3, json, os, hashlib, secrets, time, mimetypes, mimetypes
-from io import BytesIO
+import sqlite3, json, os, hashlib, secrets, time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -11,9 +10,6 @@ PORT    = int(os.environ.get("PORT", 8000))
 DB_PATH = "/data/kukito.db"
 
 SESSIONS    = {}
-FILES_DIR   = os.path.join(os.path.dirname(DB_PATH), 'files')
-FILES_DIR   = os.path.join(os.path.dirname(DB_PATH), "files")
-os.makedirs(FILES_DIR, exist_ok=True)
 SESSION_TTL = 60 * 60 * 24 * 7
 
 # 手当単価（固定）
@@ -94,22 +90,10 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS site_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        site_id TEXT NOT NULL,
-        file_name TEXT NOT NULL,
-        file_type TEXT DEFAULT '',
-        original_name TEXT NOT NULL,
-        file_size INTEGER DEFAULT 0,
-        uploaded_by TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now','localtime')),
-        FOREIGN KEY (site_id) REFERENCES sites(id)
-    );
-    CREATE TABLE IF NOT EXISTS site_files (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         site_id TEXT NOT NULL, file_name TEXT NOT NULL,
         file_type TEXT DEFAULT '', original_name TEXT NOT NULL,
         file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now','localtime')),
-        FOREIGN KEY (site_id) REFERENCES sites(id)
+        created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS subcons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,21 +162,13 @@ def init_db():
             (td,"A社","S001",3,"人工",25000,"未払"),
         ])
     if "site_files" not in tables:
-        cur.execute("""CREATE TABLE site_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id TEXT NOT NULL, file_name TEXT NOT NULL,
-            file_type TEXT DEFAULT '', original_name TEXT NOT NULL,
-            file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now','localtime')))""")
-
-    if "site_files" not in tables:
-        cur.execute("""CREATE TABLE IF NOT EXISTS site_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id TEXT NOT NULL, file_name TEXT NOT NULL,
-            file_type TEXT DEFAULT '', original_name TEXT NOT NULL,
-            file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now','localtime')))""")
-    os.makedirs(FILES_DIR, exist_ok=True)
+        cur.execute("CREATE TABLE IF NOT EXISTS site_files ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "site_id TEXT NOT NULL, file_name TEXT NOT NULL,"
+            "file_type TEXT DEFAULT '', original_name TEXT NOT NULL,"
+            "file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',"
+            "created_at TEXT DEFAULT (datetime('now','localtime')))")
+    os.makedirs('/data/files', exist_ok=True)
     # companies テーブルのサンプルは挿入しない（実データ保護）
     con.commit(); con.close()
     print(f"✅ DB初期化完了: {DB_PATH}")
@@ -312,49 +288,26 @@ class Handler(BaseHTTPRequestHandler):
         qs     = parse_qs(parsed.query)
 
         if path in ("","/"): self.send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),"index.html")); return
-        parts_p = path.strip("/").split("/")
-        if len(parts_p)==2 and parts_p[0]=="files":
-            sess=get_session(self.token())
-            if not sess: self.send_json({"error":"login required"},401); return
-            con2=get_db()
+        pp = path.strip("/").split("/")
+        if len(pp)==2 and pp[0]=="files":
+            s3 = get_session(self.token())
+            if not s3: self.send_json({"error":"login required"},401); return
+            c2 = get_db()
             try:
-                r=con2.execute("SELECT * FROM site_files WHERE id=?",(parts_p[1],)).fetchone()
-                if not r: self.send_json({"error":"not found"},404); return
-                fpath=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
-                if not os.path.exists(fpath): self.send_json({"error":"file missing"},404); return
-                with open(fpath,"rb") as ff: fdata=ff.read()
-                mime=mimetypes.guess_type(r["original_name"])[0] or "application/octet-stream"
+                rec = c2.execute("SELECT * FROM site_files WHERE id=?",(pp[1],)).fetchone()
+                if not rec: self.send_json({"error":"not found"},404); return
+                fp = "/data/files/" + rec["site_id"] + "/" + rec["file_name"]
+                if not os.path.exists(fp): self.send_json({"error":"file missing"},404); return
+                with open(fp,"rb") as ff: fd = ff.read()
+                ext = os.path.splitext(rec["original_name"])[1].lower()
+                mm = {".pdf":"application/pdf",".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg"}
                 self.send_response(200)
-                self.send_header("Content-Type",mime)
-                self.send_header("Content-Length",len(fdata))
-                self.send_header("Content-Disposition",'attachment; filename="download"')
+                self.send_header("Content-Type", mm.get(ext,"application/octet-stream"))
+                self.send_header("Content-Length", len(fd))
+                self.send_header("Content-Disposition", 'attachment; filename="file"')
                 self.send_header("Access-Control-Allow-Origin","*")
-                self.end_headers()
-                self.wfile.write(fdata)
-            finally: con2.close()
-            return
-
-        # ファイルダウンロード: /files/{id}
-        parts_path = path.strip("/").split("/")
-        if len(parts_path)==2 and parts_path[0]=="files":
-            s=get_session(self.token())
-            if not s: self.send_json({"error":"ログインが必要です"},401); return
-            con2=get_db()
-            try:
-                r=con2.execute("SELECT * FROM site_files WHERE id=?",(parts_path[1],)).fetchone()
-                if not r: self.send_json({"error":"Not found"},404); return
-                fpath=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
-                if not os.path.exists(fpath): self.send_json({"error":"ファイルが見つかりません"},404); return
-                with open(fpath,"rb") as f: data=f.read()
-                mime=mimetypes.guess_type(r["original_name"])[0] or "application/octet-stream"
-                self.send_response(200)
-                self.send_header("Content-Type",mime)
-                self.send_header("Content-Length",len(data))
-                self.send_header("Content-Disposition",f'attachment; filename="{r["original_name"]}"')
-                self.send_header("Access-Control-Allow-Origin","*")
-                self.end_headers()
-                self.wfile.write(data)
-            finally: con2.close()
+                self.end_headers(); self.wfile.write(fd)
+            finally: c2.close()
             return
 
         con = get_db()
@@ -417,15 +370,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.auth(): return
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
-
             elif path=="/api/site_files":
-                auth_sf=self.auth()
-                if not auth_sf: return
-                sid=qs.get("site_id",[""])[0]
+                a2 = self.auth()
+                if not a2: return
+                sid = qs.get("site_id",[""  ])[0]
                 if sid:
-                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
+                    r = con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
                 else:
-                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
+                    r = con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
                 self.send_json(rows(r))
 
             elif path=="/api/extra_works":
@@ -513,10 +465,6 @@ class Handler(BaseHTTPRequestHandler):
                 emp  = row(con.execute("SELECT * FROM employees WHERE id=?",(emp_id,)).fetchone())
                 self.send_json({"emp": emp, "logs": logs})
 
-            elif len(parsed.path.strip("/").split("/"))==2 and parsed.path.strip("/").split("/")[0]=="api" and parsed.path.strip("/").split("/")[1]=="files":
-                # /api/files/{id} は別処理
-                self.send_json({"error":"Not found"},404)
-
             else: self.send_json({"error":"Not found"},404)
 
         except Exception as e:
@@ -571,6 +519,16 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
 
+            elif path=="/api/site_files":
+                a2 = self.auth()
+                if not a2: return
+                sid = qs.get("site_id",[""  ])[0]
+                if sid:
+                    r = con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
+                else:
+                    r = con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
+                self.send_json(rows(r))
+
             elif path=="/api/extra_works":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 cur=con.execute("INSERT INTO extra_works (site_id,date,description,amount) VALUES (?,?,?,?)",
@@ -605,27 +563,27 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/site_files":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                ct=self.headers.get("Content-Type","")
+                ct = self.headers.get("Content-Type","")
                 if "multipart/form-data" not in ct:
                     self.send_json({"error":"multipart required"},400); return
-                bnd=None
+                bnd = None
                 for seg in ct.split(";"):
-                    seg=seg.strip()
+                    seg = seg.strip()
                     if seg.startswith("boundary="):
-                        bnd=seg[9:].strip('"').encode(); break
+                        bnd = seg[9:].strip('"').encode(); break
                 if not bnd: self.send_json({"error":"no boundary"},400); return
-                length=int(self.headers.get("Content-Length",0))
-                body=self.rfile.read(length)
-                CRLF=bytes([13,10])
-                fields={}; file_data=None; original_name="upload"
+                length = int(self.headers.get("Content-Length",0))
+                body = self.rfile.read(length)
+                CRLF = bytes([13,10])
+                fields = {}; file_data = None; oname = "upload"
                 for part in body.split(b"--"+bnd)[1:]:
                     if not part or part[:2]==b"--": continue
-                    sep=CRLF+CRLF
+                    sep = CRLF+CRLF
                     if sep not in part: continue
-                    hdr_bytes,content=part.split(sep,1)
-                    if content[-2:]==CRLF: content=content[:-2]
+                    hb,content = part.split(sep,1)
+                    if content.endswith(CRLF): content=content[:-2]
                     disp={}
-                    for line in hdr_bytes.decode("utf-8","replace").splitlines():
+                    for line in hb.decode("utf-8","replace").splitlines():
                         if "Content-Disposition" not in line: continue
                         for piece in line.split(";"):
                             piece=piece.strip()
@@ -634,21 +592,21 @@ class Handler(BaseHTTPRequestHandler):
                                 disp[k.strip()]=v.strip().strip('"')
                     nm=disp.get("name","")
                     if "filename" in disp:
-                        original_name=disp["filename"] or "upload"
-                        file_data=content
+                        oname=disp["filename"] or "upload"; file_data=content
                     else:
                         fields[nm]=content.decode("utf-8","replace")
                 site_id=fields.get("site_id","")
-                file_type=fields.get("file_type","")
+                ftype=fields.get("file_type","")
                 if file_data is None or not site_id:
                     self.send_json({"error":"site_id and file required"},400); return
-                ext=os.path.splitext(original_name)[1]
+                ext=os.path.splitext(oname)[1]
                 safe=secrets.token_hex(8)+ext
-                save_dir=os.path.join(FILES_DIR,site_id)
-                os.makedirs(save_dir,exist_ok=True)
-                with open(os.path.join(save_dir,safe),"wb") as ff: ff.write(file_data)
-                cur2=con.execute("INSERT INTO site_files (site_id,file_name,file_type,original_name,file_size,uploaded_by) VALUES (?,?,?,?,?,?)",
-                    (site_id,safe,file_type,original_name,len(file_data),s["emp_id"]))
+                sdir="/data/files/"+site_id
+                os.makedirs(sdir,exist_ok=True)
+                with open(sdir+"/"+safe,"wb") as ff: ff.write(file_data)
+                cur2=con.execute(
+                    "INSERT INTO site_files (site_id,file_name,file_type,original_name,file_size,uploaded_by) VALUES (?,?,?,?,?,?)",
+                    (site_id,safe,ftype,oname,len(file_data),s["emp_id"]))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM site_files WHERE id=?",(cur2.lastrowid,)).fetchone()),201)
 
@@ -774,17 +732,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts)==3:
                 if parts[1]=="site_files":
                     if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                    r=con.execute("SELECT * FROM site_files WHERE id=?",(parts[2],)).fetchone()
-                    if r:
-                        fpath=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
-                        if os.path.exists(fpath): os.remove(fpath)
-                        con.execute("DELETE FROM site_files WHERE id=?",(parts[2],)); con.commit()
-                    self.send_json({"deleted":parts[2]}); return
-                if parts[1]=="site_files":
-                    if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                    r=con.execute("SELECT * FROM site_files WHERE id=?",(parts[2],)).fetchone()
-                    if r:
-                        fp=os.path.join(FILES_DIR,r["site_id"],r["file_name"])
+                    rec=con.execute("SELECT * FROM site_files WHERE id=?",(parts[2],)).fetchone()
+                    if rec:
+                        fp="/data/files/"+rec["site_id"]+"/"+rec["file_name"]
                         if os.path.exists(fp): os.remove(fp)
                         con.execute("DELETE FROM site_files WHERE id=?",(parts[2],)); con.commit()
                     self.send_json({"deleted":parts[2]}); return
