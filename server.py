@@ -447,25 +447,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.auth(): return
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
-            elif path=="/api/site_files":
-                s=self.auth()
-                if not s: return
-                sid=qs.get("site_id",[""])[0]
-                if sid:
-                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
-                else:
-                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
-                self.send_json(rows(r))
-
-            elif path=="/api/site_files":
-                sess=self.auth()
-                if not sess: return
-                sid=qs.get("site_id",[""])[0]
-                if sid:
-                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
-                else:
-                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
-                self.send_json(rows(r))
 
             elif path=="/api/extra_works":
                 if not self.auth(mgr=True): return
@@ -610,16 +591,6 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
 
-            elif path=="/api/site_files":
-                sess=self.auth()
-                if not sess: return
-                sid=qs.get("site_id",[""])[0]
-                if sid:
-                    r=con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
-                else:
-                    r=con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
-                self.send_json(rows(r))
-
             elif path=="/api/extra_works":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 cur=con.execute("INSERT INTO extra_works (site_id,date,description,amount) VALUES (?,?,?,?)",
@@ -654,10 +625,10 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/site_files":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                ct = self.headers.get("Content-Type","")
+                ct=self.headers.get("Content-Type","")
                 if "multipart/form-data" not in ct:
                     self.send_json({"error":"multipart required"},400); return
-                bnd = None
+                bnd=None
                 for seg in ct.split(";"):
                     seg=seg.strip()
                     if seg.startswith("boundary="):
