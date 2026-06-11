@@ -95,6 +95,14 @@ def init_db():
         file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        emp_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        memo TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
     CREATE TABLE IF NOT EXISTS subcons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL, vendor TEXT NOT NULL, site_id TEXT NOT NULL,
@@ -167,6 +175,12 @@ def init_db():
             "site_id TEXT NOT NULL, file_name TEXT NOT NULL,"
             "file_type TEXT DEFAULT '', original_name TEXT NOT NULL,"
             "file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',"
+            "created_at TEXT DEFAULT (datetime('now','localtime')))")
+    if "schedules" not in tables:
+        cur.execute("CREATE TABLE IF NOT EXISTS schedules ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "date TEXT NOT NULL, emp_id TEXT NOT NULL, site_id TEXT NOT NULL,"
+            "memo TEXT DEFAULT '',"
             "created_at TEXT DEFAULT (datetime('now','localtime')))")
     os.makedirs('/data/files', exist_ok=True)
     # companies テーブルのサンプルは挿入しない（実データ保護）
@@ -370,6 +384,24 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.auth(): return
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
+            elif path=="/api/schedules":
+                a3 = self.auth()
+                if not a3: return
+                ym = qs.get("month",[""])[0]  # YYYY-MM
+                if ym:
+                    r = con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
+                        FROM schedules sc
+                        LEFT JOIN employees e ON sc.emp_id=e.id
+                        LEFT JOIN sites st ON sc.site_id=st.id
+                        WHERE sc.date LIKE ? ORDER BY sc.date""",(ym+"%",)).fetchall()
+                else:
+                    r = con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
+                        FROM schedules sc
+                        LEFT JOIN employees e ON sc.emp_id=e.id
+                        LEFT JOIN sites st ON sc.site_id=st.id
+                        ORDER BY sc.date""").fetchall()
+                self.send_json(rows(r))
+
             elif path=="/api/site_files":
                 a2 = self.auth()
                 if not a2: return
@@ -561,6 +593,17 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM companies WHERE id=?",(cur.lastrowid,)).fetchone()),201)
 
+            elif path=="/api/schedules":
+                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
+                cur3 = con.execute("INSERT INTO schedules (date,emp_id,site_id,memo) VALUES (?,?,?,?)",
+                    (b["date"], b["empId"], b["siteId"], b.get("memo","")))
+                con.commit()
+                self.send_json(row(con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
+                    FROM schedules sc
+                    LEFT JOIN employees e ON sc.emp_id=e.id
+                    LEFT JOIN sites st ON sc.site_id=st.id
+                    WHERE sc.id=?""",(cur3.lastrowid,)).fetchone()),201)
+
             elif path=="/api/site_files":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 ct = self.headers.get("Content-Type","")
@@ -740,7 +783,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"deleted":parts[2]}); return
                 tmap={"employees":"employees","sites":"sites","logs":"daily_logs",
                       "subcons":"subcons","extra_works":"extra_works","emp_site_km":"employee_site_km",
-                      "companies":"companies"}
+                      "companies":"companies","schedules":"schedules"}
                 tbl=tmap.get(parts[1])
                 if not tbl: self.send_json({"error":"Not found"},404); return
                 if parts[1]=="logs" and s["role"]!="manager":
