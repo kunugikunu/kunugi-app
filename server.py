@@ -654,7 +654,18 @@ class Handler(BaseHTTPRequestHandler):
                         bnd = seg[9:].strip('"').encode(); break
                 if not bnd: self.send_json({"error":"no boundary"},400); return
                 length = int(self.headers.get("Content-Length",0))
-                body = self.rfile.read(length)
+                # チャンク読み込み（大きいPDF対応）
+                tmp_path = "/tmp/up_" + secrets.token_hex(4)
+                with open(tmp_path,"wb") as tf:
+                    rem = length
+                    while rem > 0:
+                        chunk = self.rfile.read(min(65536, rem))
+                        if not chunk: break
+                        tf.write(chunk)
+                        rem -= len(chunk)
+                with open(tmp_path,"rb") as tf: body = tf.read()
+                try: os.remove(tmp_path)
+                except: pass
                 CRLF = bytes([13,10])
                 fields = {}; file_data = None; oname = "upload"
                 for part in body.split(b"--"+bnd)[1:]:
