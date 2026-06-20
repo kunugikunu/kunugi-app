@@ -88,18 +88,9 @@ def init_db():
         note TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
-    CREATE TABLE IF NOT EXISTS site_files (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        site_id TEXT NOT NULL, file_name TEXT NOT NULL,
-        file_type TEXT DEFAULT '', original_name TEXT NOT NULL,
-        file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now','localtime'))
-    );
     CREATE TABLE IF NOT EXISTS schedules (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        emp_id TEXT NOT NULL,
-        site_id TEXT NOT NULL,
+        date TEXT NOT NULL, emp_id TEXT NOT NULL, site_id TEXT NOT NULL,
         memo TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -169,20 +160,12 @@ def init_db():
         cur.executemany("INSERT INTO subcons (date,vendor,site_id,qty,unit,price,status) VALUES (?,?,?,?,?,?,?)", [
             (td,"A社","S001",3,"人工",25000,"未払"),
         ])
-    if "site_files" not in tables:
-        cur.execute("CREATE TABLE IF NOT EXISTS site_files ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "site_id TEXT NOT NULL, file_name TEXT NOT NULL,"
-            "file_type TEXT DEFAULT '', original_name TEXT NOT NULL,"
-            "file_size INTEGER DEFAULT 0, uploaded_by TEXT DEFAULT '',"
-            "created_at TEXT DEFAULT (datetime('now','localtime')))")
     if "schedules" not in tables:
         cur.execute("CREATE TABLE IF NOT EXISTS schedules ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "date TEXT NOT NULL, emp_id TEXT NOT NULL, site_id TEXT NOT NULL,"
             "memo TEXT DEFAULT '',"
             "created_at TEXT DEFAULT (datetime('now','localtime')))")
-    os.makedirs('/data/files', exist_ok=True)
     # companies テーブルのサンプルは挿入しない（実データ保護）
     con.commit(); con.close()
     print(f"✅ DB初期化完了: {DB_PATH}")
@@ -302,27 +285,6 @@ class Handler(BaseHTTPRequestHandler):
         qs     = parse_qs(parsed.query)
 
         if path in ("","/"): self.send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),"index.html")); return
-        pp = path.strip("/").split("/")
-        if len(pp)==2 and pp[0]=="files":
-            s3 = get_session(self.token())
-            if not s3: self.send_json({"error":"login required"},401); return
-            c2 = get_db()
-            try:
-                rec = c2.execute("SELECT * FROM site_files WHERE id=?",(pp[1],)).fetchone()
-                if not rec: self.send_json({"error":"not found"},404); return
-                fp = "/data/files/" + rec["site_id"] + "/" + rec["file_name"]
-                if not os.path.exists(fp): self.send_json({"error":"file missing"},404); return
-                with open(fp,"rb") as ff: fd = ff.read()
-                ext = os.path.splitext(rec["original_name"])[1].lower()
-                mm = {".pdf":"application/pdf",".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg"}
-                self.send_response(200)
-                self.send_header("Content-Type", mm.get(ext,"application/octet-stream"))
-                self.send_header("Content-Length", len(fd))
-                self.send_header("Content-Disposition", 'attachment; filename="file"')
-                self.send_header("Access-Control-Allow-Origin","*")
-                self.end_headers(); self.wfile.write(fd)
-            finally: c2.close()
-            return
 
         con = get_db()
         try:
@@ -385,9 +347,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(rows(con.execute("SELECT * FROM companies ORDER BY name").fetchall()))
 
             elif path=="/api/schedules":
-                a3 = self.auth()
-                if not a3: return
-                ym = qs.get("month",[""])[0]  # YYYY-MM
+                a_sc = self.auth()
+                if not a_sc: return
+                ym = qs.get("month",[""])[0]
                 if ym:
                     r = con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
                         FROM schedules sc
@@ -396,23 +358,13 @@ class Handler(BaseHTTPRequestHandler):
                         WHERE sc.date LIKE ? ORDER BY sc.date""",(ym+"%",)).fetchall()
                 else:
                     r = con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
-                        FROM schedules sc
-                        LEFT JOIN employees e ON sc.emp_id=e.id
+                        FROM schedules sc LEFT JOIN employees e ON sc.emp_id=e.id
                         LEFT JOIN sites st ON sc.site_id=st.id
                         ORDER BY sc.date""").fetchall()
                 self.send_json(rows(r))
 
-            elif path=="/api/site_files":
-                a2 = self.auth()
-                if not a2: return
-                sid = qs.get("site_id",[""  ])[0]
-                if sid:
-                    r = con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
-                else:
-                    r = con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
-                self.send_json(rows(r))
-
             elif path=="/api/extra_works":
+
                 if not self.auth(mgr=True): return
                 sid=qs.get("site_id",[""])[0]
                 if sid:
@@ -551,16 +503,6 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM sites WHERE id=?",(b["id"],)).fetchone()),201)
 
-            elif path=="/api/site_files":
-                a2 = self.auth()
-                if not a2: return
-                sid = qs.get("site_id",[""  ])[0]
-                if sid:
-                    r = con.execute("SELECT * FROM site_files WHERE site_id=? ORDER BY created_at DESC",(sid,)).fetchall()
-                else:
-                    r = con.execute("SELECT sf.*,st.name site_name FROM site_files sf LEFT JOIN sites st ON sf.site_id=st.id ORDER BY sf.created_at DESC").fetchall()
-                self.send_json(rows(r))
-
             elif path=="/api/extra_works":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 cur=con.execute("INSERT INTO extra_works (site_id,date,description,amount) VALUES (?,?,?,?)",
@@ -595,112 +537,13 @@ class Handler(BaseHTTPRequestHandler):
 
             elif path=="/api/schedules":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                cur3 = con.execute("INSERT INTO schedules (date,emp_id,site_id,memo) VALUES (?,?,?,?)",
-                    (b["date"], b["empId"], b["siteId"], b.get("memo","")))
+                cur3=con.execute("INSERT INTO schedules (date,emp_id,site_id,memo) VALUES (?,?,?,?)",
+                    (b["date"],b["empId"],b["siteId"],b.get("memo","")))
                 con.commit()
                 self.send_json(row(con.execute("""SELECT sc.*,e.name emp_name,st.name site_name
-                    FROM schedules sc
-                    LEFT JOIN employees e ON sc.emp_id=e.id
+                    FROM schedules sc LEFT JOIN employees e ON sc.emp_id=e.id
                     LEFT JOIN sites st ON sc.site_id=st.id
                     WHERE sc.id=?""",(cur3.lastrowid,)).fetchone()),201)
-
-            elif path=="/api/debug_upload":
-                # デバッグ: リクエスト情報を返す
-                ct2 = self.headers.get("Content-Type","")
-                length2 = int(self.headers.get("Content-Length",0))
-                body2 = self.rfile.read(length2)
-                bnd2 = None
-                for seg in ct2.split(";"):
-                    seg=seg.strip()
-                    if seg.startswith("boundary="):
-                        bnd2=seg[9:].strip('"').encode(); break
-                info = {
-                    "content_type": ct2,
-                    "content_length": length2,
-                    "boundary_found": bnd2 is not None,
-                    "body_start": body2[:100].hex() if body2 else "",
-                    "parts_count": len(body2.split(b"--"+bnd2)) if bnd2 else 0,
-                }
-                # パース試行
-                if bnd2:
-                    CRLF2=bytes([13,10])
-                    parts_info=[]
-                    for part in body2.split(b"--"+bnd2)[1:]:
-                        if not part or part[:2]==b"--": continue
-                        sep2=CRLF2+CRLF2
-                        if sep2 not in part: continue
-                        hb2,content2=part.split(sep2,1)
-                        disp2={}
-                        for line2 in hb2.decode("utf-8","replace").splitlines():
-                            if "Content-Disposition" not in line2: continue
-                            for piece2 in line2.split(";"):
-                                piece2=piece2.strip()
-                                if "=" in piece2:
-                                    k2,v2=piece2.split("=",1)
-                                    disp2[k2.strip()]=v2.strip().strip('"')
-                        parts_info.append({"name":disp2.get("name",""),"filename":disp2.get("filename",""),"size":len(content2)})
-                    info["parts"] = parts_info
-                self.send_json(info)
-
-            elif path=="/api/site_files":
-                if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                ct = self.headers.get("Content-Type","")
-                if "multipart/form-data" not in ct:
-                    self.send_json({"error":"multipart required"},400); return
-                bnd = None
-                for seg in ct.split(";"):
-                    seg = seg.strip()
-                    if seg.startswith("boundary="):
-                        bnd = seg[9:].strip('"').encode(); break
-                if not bnd: self.send_json({"error":"no boundary"},400); return
-                length = int(self.headers.get("Content-Length",0))
-                # チャンク読み込み（大きいPDF対応）
-                tmp_path = "/tmp/up_" + secrets.token_hex(4)
-                with open(tmp_path,"wb") as tf:
-                    rem = length
-                    while rem > 0:
-                        chunk = self.rfile.read(min(65536, rem))
-                        if not chunk: break
-                        tf.write(chunk)
-                        rem -= len(chunk)
-                with open(tmp_path,"rb") as tf: body = tf.read()
-                try: os.remove(tmp_path)
-                except: pass
-                CRLF = bytes([13,10])
-                fields = {}; file_data = None; oname = "upload"
-                for part in body.split(b"--"+bnd)[1:]:
-                    if not part or part[:2]==b"--": continue
-                    sep = CRLF+CRLF
-                    if sep not in part: continue
-                    hb,content = part.split(sep,1)
-                    if content.endswith(CRLF): content=content[:-2]
-                    disp={}
-                    for line in hb.decode("utf-8","replace").splitlines():
-                        if "Content-Disposition" not in line: continue
-                        for piece in line.split(";"):
-                            piece=piece.strip()
-                            if "=" in piece:
-                                k,v=piece.split("=",1)
-                                disp[k.strip()]=v.strip().strip('"')
-                    nm=disp.get("name","")
-                    if "filename" in disp:
-                        oname=disp["filename"] or "upload"; file_data=content
-                    else:
-                        fields[nm]=content.decode("utf-8","replace")
-                site_id=fields.get("site_id","")
-                ftype=fields.get("file_type","")
-                if file_data is None or not site_id:
-                    self.send_json({"error":"site_id and file required"},400); return
-                ext=os.path.splitext(oname)[1]
-                safe=secrets.token_hex(8)+ext
-                sdir="/data/files/"+site_id
-                os.makedirs(sdir,exist_ok=True)
-                with open(sdir+"/"+safe,"wb") as ff: ff.write(file_data)
-                cur2=con.execute(
-                    "INSERT INTO site_files (site_id,file_name,file_type,original_name,file_size,uploaded_by) VALUES (?,?,?,?,?,?)",
-                    (site_id,safe,ftype,oname,len(file_data),s["emp_id"]))
-                con.commit()
-                self.send_json(row(con.execute("SELECT * FROM site_files WHERE id=?",(cur2.lastrowid,)).fetchone()),201)
 
             elif path=="/api/subcons":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
@@ -822,14 +665,6 @@ class Handler(BaseHTTPRequestHandler):
         con=get_db()
         try:
             if len(parts)==3:
-                if parts[1]=="site_files":
-                    if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
-                    rec=con.execute("SELECT * FROM site_files WHERE id=?",(parts[2],)).fetchone()
-                    if rec:
-                        fp="/data/files/"+rec["site_id"]+"/"+rec["file_name"]
-                        if os.path.exists(fp): os.remove(fp)
-                        con.execute("DELETE FROM site_files WHERE id=?",(parts[2],)); con.commit()
-                    self.send_json({"deleted":parts[2]}); return
                 tmap={"employees":"employees","sites":"sites","logs":"daily_logs",
                       "subcons":"subcons","extra_works":"extra_works","emp_site_km":"employee_site_km",
                       "companies":"companies","schedules":"schedules"}
