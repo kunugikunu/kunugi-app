@@ -604,6 +604,44 @@ class Handler(BaseHTTPRequestHandler):
                     LEFT JOIN sites st ON sc.site_id=st.id
                     WHERE sc.id=?""",(cur3.lastrowid,)).fetchone()),201)
 
+            elif path=="/api/debug_upload":
+                # デバッグ: リクエスト情報を返す
+                ct2 = self.headers.get("Content-Type","")
+                length2 = int(self.headers.get("Content-Length",0))
+                body2 = self.rfile.read(length2)
+                bnd2 = None
+                for seg in ct2.split(";"):
+                    seg=seg.strip()
+                    if seg.startswith("boundary="):
+                        bnd2=seg[9:].strip('"').encode(); break
+                info = {
+                    "content_type": ct2,
+                    "content_length": length2,
+                    "boundary_found": bnd2 is not None,
+                    "body_start": body2[:100].hex() if body2 else "",
+                    "parts_count": len(body2.split(b"--"+bnd2)) if bnd2 else 0,
+                }
+                # パース試行
+                if bnd2:
+                    CRLF2=bytes([13,10])
+                    parts_info=[]
+                    for part in body2.split(b"--"+bnd2)[1:]:
+                        if not part or part[:2]==b"--": continue
+                        sep2=CRLF2+CRLF2
+                        if sep2 not in part: continue
+                        hb2,content2=part.split(sep2,1)
+                        disp2={}
+                        for line2 in hb2.decode("utf-8","replace").splitlines():
+                            if "Content-Disposition" not in line2: continue
+                            for piece2 in line2.split(";"):
+                                piece2=piece2.strip()
+                                if "=" in piece2:
+                                    k2,v2=piece2.split("=",1)
+                                    disp2[k2.strip()]=v2.strip().strip('"')
+                        parts_info.append({"name":disp2.get("name",""),"filename":disp2.get("filename",""),"size":len(content2)})
+                    info["parts"] = parts_info
+                self.send_json(info)
+
             elif path=="/api/site_files":
                 if s["role"]!="manager": self.send_json({"error":"権限なし"},403); return
                 ct = self.headers.get("Content-Type","")
