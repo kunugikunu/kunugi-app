@@ -1594,6 +1594,20 @@ function FilesPage({data,user,token,isMgr,reload,showToast}){
     finally{setUploading(false);}
   };
 
+  const debugUpload=async()=>{
+    const f=fileRef.current?.files[0];
+    if(!f||!selectedSite){showToast('ファイルと現場を選択してください','error');return;}
+    const fd=new FormData();
+    fd.append('file',f);
+    fd.append('site_id',selectedSite);
+    fd.append('file_type','テスト');
+    const res=await fetch('/api/debug_upload',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:fd});
+    const d=await res.json();
+    console.log('DEBUG UPLOAD:', d);
+    showToast('コンソールにデバッグ情報を出力しました（F12→Console）');
+    alert(JSON.stringify(d,null,2));
+  };
+
   const download=async(file)=>{
     const res=await fetch(`/files/${file.id}`,{headers:{Authorization:`Bearer ${token}`}});
     if(!res.ok){showToast('ダウンロードに失敗しました','error');return;}
@@ -1659,6 +1673,7 @@ function FilesPage({data,user,token,isMgr,reload,showToast}){
             <button className="btn-submit" onClick={upload} disabled={uploading||!selectedSite}>
               {uploading?'アップロード中…':'アップロード ↑'}
             </button>
+            <button className="btn btn-ghost" onClick={debugUpload} style={{marginLeft:8}}>🔍 デバッグ</button>
           </div>
         </div>}
 
