@@ -1347,18 +1347,18 @@ function SubconPage({data,token,reload,showToast}){
 // ── CalendarPage ──────────────────────────────────────────────────────────
 function CalendarPage({data,user,token,isMgr,reload,showToast}){
   const now = new Date();
-  const [ym,setYm]         = useState({y:now.getFullYear(), m:now.getMonth()});
-  const [schedules,setSch] = useState([]);
+  const [ym,setYm]           = useState({y:now.getFullYear(), m:now.getMonth()});
+  const [schedules,setSch]   = useState([]);
   const [selDate,setSelDate] = useState(null);
   const [schForm,setSchForm] = useState({empId:'',siteId:'',memo:''});
   const [saving,setSaving]   = useState(false);
-  const [view,setView]       = useState('month'); // 'month' | 'list'
-  const [filterEmps,setFilterEmps] = useState([]); // 選択中の従業員ID（空=全員）
-  const [sortKey,setSortKey] = useState('date');   // 'date' | 'emp' | 'site'
+  const [view,setView]       = useState('month');
+  const [filterEmps,setFilterEmps] = useState([]);
+  const [sortKey,setSortKey] = useState('date');
   const [showFilter,setShowFilter] = useState(false);
 
-  const ymStr   = `${ym.y}-${String(ym.m+1).padStart(2,'0')}`;
-  const todayStr= `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const ymStr    = `${ym.y}-${String(ym.m+1).padStart(2,'0')}`;
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
   const fetchSch = useCallback(async()=>{
     const res = await api.get(`/schedules?month=${ymStr}`,token);
@@ -1369,19 +1369,37 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
   const prevMonth=()=>setYm(({y,m})=>m===0?{y:y-1,m:11}:{y,m:m-1});
   const nextMonth=()=>setYm(({y,m})=>m===11?{y:y+1,m:0}:{y,m:m+1});
   const goToday  =()=>setYm({y:now.getFullYear(),m:now.getMonth()});
+  const toggleEmp=(id)=>setFilterEmps(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
 
-  const toggleEmp=(id)=>setFilterEmps(prev=>
-    prev.includes(id) ? prev.filter(x=>x!==id) : [...prev,id]
-  );
-
-  const EMP_COLORS=['#f6a623','#60a5fa','#4ade80','#c084fc','#f472b6','#fb923c','#34d399','#a78bfa'];
+  // 従業員カラー（明確に区別できる色）
+  const EMP_COLORS=['#f6a623','#60a5fa','#4ade80','#f472b6','#fb923c','#a78bfa','#34d399','#f87171'];
   const empColor=id=>{
     const idx=(data.employees||[]).findIndex(e=>e.id===id);
     return EMP_COLORS[Math.max(0,idx)%EMP_COLORS.length];
   };
 
+  // ステータス定義（色・記号）
+  const STATUS_ICONS = {
+    trip:    {icon:'✈',color:'#f6a623',label:'出張'},
+    ot:      {icon:'⏱',color:'#c084fc',label:'残業'},
+    drive_p: {icon:'🚗',color:'#60a5fa',label:'運転片'},
+    drive_r: {icon:'🚗',color:'#3b82f6',label:'運転往'},
+    move_p:  {icon:'🚶',color:'#4ade80',label:'移動片'},
+    move_r:  {icon:'🚶',color:'#22c55e',label:'移動往'},
+  };
+  const getStatuses=(l)=>{
+    const s=[];
+    if(l.is_trip)                          s.push('trip');
+    if((l.overtime_h||0)>0)               s.push('ot');
+    if(l.drive_type==='片道')              s.push('drive_p');
+    if(l.drive_type==='往復')              s.push('drive_r');
+    if(l.move_type==='片道')               s.push('move_p');
+    if(l.move_type==='往復')               s.push('move_r');
+    return s;
+  };
+
   // カレンダーグリッド
-  const grid = useMemo(()=>{
+  const grid=useMemo(()=>{
     const first=new Date(ym.y,ym.m,1);
     const days=new Date(ym.y,ym.m+1,0).getDate();
     const cells=Array(first.getDay()).fill(null);
@@ -1392,50 +1410,31 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
 
   const dateStr=d=>`${ym.y}-${String(ym.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
-  // フィルター適用済みログ
-  const filteredLogs = useMemo(()=>{
-    const logs=(data.logs||[]).filter(l=>(l.date||'').startsWith(ymStr));
-    if(filterEmps.length===0) return logs;
-    return logs.filter(l=>filterEmps.includes(l.emp_id));
+  // フィルター済みデータ
+  const fLogs=useMemo(()=>{
+    const l=(data.logs||[]).filter(x=>(x.date||'').startsWith(ymStr));
+    return filterEmps.length?l.filter(x=>filterEmps.includes(x.emp_id)):l;
   },[data.logs,ymStr,filterEmps]);
 
-  const filteredSch = useMemo(()=>{
-    if(filterEmps.length===0) return schedules;
-    return schedules.filter(s=>filterEmps.includes(s.emp_id));
-  },[schedules,filterEmps]);
+  const fSch=useMemo(()=>
+    filterEmps.length?schedules.filter(x=>filterEmps.includes(x.emp_id)):schedules
+  ,[schedules,filterEmps]);
 
   const logsByDate=useMemo(()=>{
     const m={};
-    filteredLogs.forEach(l=>{ if(!m[l.date]) m[l.date]=[]; m[l.date].push(l); });
+    fLogs.forEach(l=>{if(!m[l.date])m[l.date]=[];m[l.date].push(l);});
     return m;
-  },[filteredLogs]);
-
+  },[fLogs]);
   const schByDate=useMemo(()=>{
     const m={};
-    filteredSch.forEach(s=>{ if(!m[s.date]) m[s.date]=[]; m[s.date].push(s); });
+    fSch.forEach(s=>{if(!m[s.date])m[s.date]=[];m[s.date].push(s);});
     return m;
-  },[filteredSch]);
+  },[fSch]);
 
-  // ステータスバッジ
-  const LogBadges=({l,compact=false})=>{
-    const tags=[];
-    if(l.overtime_h>0) tags.push({label:`残業${l.overtime_h}h`,color:'var(--purple)'});
-    if(l.drive_type&&l.drive_type!=='なし') tags.push({label:`運転${l.drive_type}`,color:'#60a5fa'});
-    if(l.move_type&&l.move_type!=='なし') tags.push({label:`移動${l.move_type}`,color:'#34d399'});
-    if(l.is_trip) tags.push({label:'出張',color:'var(--accent)'});
-    if(tags.length===0) return null;
-    if(compact) return <span style={{fontSize:8,color:'var(--mist)',marginLeft:2}}>{tags.map(t=>t.label[0]).join('')}</span>;
-    return <span style={{display:'flex',gap:3,flexWrap:'wrap'}}>
-      {tags.map(t=><span key={t.label} style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:t.color+'22',color:t.color,border:`1px solid ${t.color}44`}}>{t.label}</span>)}
-    </span>;
-  };
-
-  // リスト用ソート
   const listItems=useMemo(()=>{
     const dates=new Set([...Object.keys(logsByDate),...Object.keys(schByDate)]);
     let items=[...dates].map(d=>({date:d,logs:logsByDate[d]||[],schs:schByDate[d]||[]}));
-    if(sortKey==='date') items.sort((a,b)=>a.date.localeCompare(b.date));
-    else if(sortKey==='emp') items.sort((a,b)=>{
+    if(sortKey==='emp') items.sort((a,b)=>{
       const ea=(a.logs[0]||a.schs[0])?.emp_name||'';
       const eb=(b.logs[0]||b.schs[0])?.emp_name||'';
       return ea.localeCompare(eb)||a.date.localeCompare(b.date);
@@ -1445,6 +1444,7 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
       const sb=(b.logs[0]||b.schs[0])?.site_id||'';
       return sa.localeCompare(sb)||a.date.localeCompare(b.date);
     });
+    else items.sort((a,b)=>a.date.localeCompare(b.date));
     return items;
   },[logsByDate,schByDate,sortKey]);
 
@@ -1463,16 +1463,44 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
 
   const activeFilters=filterEmps.length>0;
 
+  // ステータスドット（カレンダーセル用）
+  const StatusDots=({l})=>{
+    const ss=getStatuses(l);
+    if(!ss.length) return null;
+    return <span style={{display:'inline-flex',gap:1,marginLeft:2}}>
+      {ss.map(k=><span key={k} style={{
+        width:5,height:5,borderRadius:'50%',
+        background:STATUS_ICONS[k].color,
+        flexShrink:0,display:'inline-block'
+      }}></span>)}
+    </span>;
+  };
+
+  // ステータスバッジ（詳細・リスト用）
+  const StatusBadges=({l})=>{
+    const ss=getStatuses(l);
+    if(!ss.length) return null;
+    return <span style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+      {ss.map(k=>{const st=STATUS_ICONS[k]; return(
+        <span key={k} style={{fontSize:10,padding:'1px 5px',borderRadius:4,
+          background:st.color+'22',color:st.color,border:`1px solid ${st.color}44`,
+          fontWeight:600,whiteSpace:'nowrap'}}>
+          {st.icon} {st.label}{k==='ot'?` ${l.overtime_h}h`:''}
+        </span>
+      );})}
+    </span>;
+  };
+
   return (
     <>
       <div className="topbar">
         <div><div className="page-title">カレンダー</div>
-          <div className="page-sub">{ym.y}年 {ym.m+1}月　● 実績　○ 予定</div>
+          <div className="page-sub">{ym.y}年 {ym.m+1}月</div>
         </div>
-        <div style={{display:'flex',gap:6}}>
+        <div style={{display:'flex',gap:4}}>
           <button className={`btn btn-sm ${view==='month'?'btn-accent':'btn-ghost'}`} onClick={()=>setView('month')}>月</button>
           <button className={`btn btn-sm ${view==='list'?'btn-accent':'btn-ghost'}`} onClick={()=>setView('list')}>リスト</button>
-          <button className={`btn btn-sm ${showFilter?'btn-accent':activeFilters?'btn-accent':'btn-ghost'}`}
+          <button className={`btn btn-sm ${showFilter||activeFilters?'btn-accent':'btn-ghost'}`}
             onClick={()=>setShowFilter(v=>!v)}>
             絞込{activeFilters?` (${filterEmps.length})`:''}</button>
         </div>
@@ -1480,16 +1508,15 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
 
       {/* フィルターパネル */}
       {showFilter&&<div style={{background:'var(--card)',borderBottom:'1px solid var(--border)',padding:'12px 16px'}}>
-        <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',marginBottom:8}}>従業員フィルター（複数選択可・空=全員）</div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',marginBottom:8}}>従業員（複数選択可・空=全員）</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
           {(data.employees||[]).map(e=>{
             const active=filterEmps.includes(e.id);
-            return <button key={e.id}
-              onClick={()=>toggleEmp(e.id)}
-              style={{padding:'4px 12px',borderRadius:20,fontSize:12,fontWeight:600,cursor:'pointer',border:'none',
+            return <button key={e.id} onClick={()=>toggleEmp(e.id)}
+              style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,cursor:'pointer',
+                border:`2px solid ${active?empColor(e.id):'transparent'}`,
                 background:active?empColor(e.id)+'33':'rgba(255,255,255,0.06)',
-                color:active?empColor(e.id):'var(--mist)',
-                outline:active?`2px solid ${empColor(e.id)}`:'none'}}>
+                color:active?empColor(e.id):'var(--mist)'}}>
               {active?'✓ ':''}{e.name}
             </button>;
           })}
@@ -1499,72 +1526,111 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
           <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',marginBottom:6}}>並べ替え</div>
           <div style={{display:'flex',gap:6}}>
             {[['date','日付順'],['emp','従業員順'],['site','現場順']].map(([k,l])=>(
-              <button key={k} className={`btn btn-sm ${sortKey===k?'btn-accent':'btn-ghost'}`}
-                onClick={()=>setSortKey(k)}>{l}</button>
+              <button key={k} className={`btn btn-sm ${sortKey===k?'btn-accent':'btn-ghost'}`} onClick={()=>setSortKey(k)}>{l}</button>
             ))}
           </div>
         </>}
+        {/* ステータス凡例 */}
+        <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',marginTop:10,marginBottom:6}}>ステータス凡例</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {Object.entries(STATUS_ICONS).map(([k,v])=>(
+            <span key={k} style={{display:'flex',alignItems:'center',gap:4,fontSize:11}}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:v.color}}></span>
+              <span style={{color:v.color}}>{v.icon} {v.label}</span>
+            </span>
+          ))}
+        </div>
       </div>}
 
-      <div className="content">
+      <div className="content" style={{padding:'8px'}}>
         {/* 月ナビ */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-          <button className="btn btn-ghost btn-sm" onClick={prevMonth}>◀</button>
-          <div style={{fontSize:17,fontWeight:700,flex:1,textAlign:'center'}}>{ym.y}年 {ym.m+1}月</div>
+          <button className="btn btn-ghost btn-sm" onClick={prevMonth} style={{fontSize:16,padding:'4px 10px'}}>◀</button>
+          <div style={{fontSize:16,fontWeight:700,flex:1,textAlign:'center'}}>{ym.y}年 {ym.m+1}月</div>
           <button className="btn btn-ghost btn-sm" onClick={goToday} style={{fontSize:11}}>今月</button>
-          <button className="btn btn-ghost btn-sm" onClick={nextMonth}>▶</button>
+          <button className="btn btn-ghost btn-sm" onClick={nextMonth} style={{fontSize:16,padding:'4px 10px'}}>▶</button>
         </div>
 
-        {/* 月カレンダー */}
-        {view==='month'&&<div className="card" style={{padding:0,overflow:'hidden'}}>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'rgba(255,255,255,0.03)'}}>
+        {/* 月カレンダー（スマホ対応・大きいセル） */}
+        {view==='month'&&<div style={{background:'var(--card)',borderRadius:12,overflow:'hidden',border:'1px solid var(--border)'}}>
+          {/* 曜日ヘッダー */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'rgba(255,255,255,0.04)'}}>
             {['日','月','火','水','木','金','土'].map((d,i)=>(
-              <div key={d} style={{textAlign:'center',padding:'8px 0',fontSize:12,fontWeight:700,
+              <div key={d} style={{textAlign:'center',padding:'6px 2px',fontSize:11,fontWeight:700,
                 color:i===0?'#fb7185':i===6?'#60a5fa':'var(--mist)',
                 borderBottom:'1px solid var(--border)'}}>{d}</div>
             ))}
           </div>
+          {/* 日付セル */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)'}}>
             {grid.map((d,i)=>{
-              if(!d) return <div key={i} style={{minHeight:80,borderBottom:'1px solid var(--border)',borderRight:'1px solid rgba(255,255,255,0.04)',background:'rgba(0,0,0,0.1)'}}></div>;
+              if(!d) return <div key={i} style={{
+                minHeight:'clamp(70px,14vw,120px)',
+                borderBottom:'1px solid var(--border)',
+                borderRight:'1px solid rgba(255,255,255,0.04)',
+                background:'rgba(0,0,0,0.15)'}}></div>;
               const ds=dateStr(d);
               const logs=logsByDate[ds]||[];
               const schs=schByDate[ds]||[];
               const isToday=ds===todayStr;
               const isSel=ds===selDate;
               const dow=i%7;
+              const total=logs.length+schs.length;
               return (
                 <div key={i} onClick={()=>setSelDate(isSel?null:ds)}
-                  style={{minHeight:80,padding:'4px',cursor:'pointer',
-                    borderBottom:'1px solid var(--border)',borderRight:'1px solid rgba(255,255,255,0.04)',
-                    background:isSel?'rgba(246,166,35,0.12)':isToday?'rgba(246,166,35,0.06)':'transparent',
-                    transition:'background 0.15s'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                    <span style={{fontSize:13,fontWeight:isToday?700:400,width:22,height:22,
-                      display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'50%',
+                  style={{
+                    minHeight:'clamp(70px,14vw,120px)',
+                    padding:'3px 2px',cursor:'pointer',
+                    borderBottom:'1px solid var(--border)',
+                    borderRight:'1px solid rgba(255,255,255,0.04)',
+                    background:isSel?'rgba(246,166,35,0.15)':isToday?'rgba(246,166,35,0.07)':'transparent',
+                    transition:'background 0.15s',
+                    overflow:'hidden'
+                  }}>
+                  {/* 日付番号 */}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2,padding:'0 1px'}}>
+                    <span style={{
+                      fontSize:'clamp(11px,2.8vw,14px)',fontWeight:isToday?700:400,
+                      width:'clamp(18px,4vw,24px)',height:'clamp(18px,4vw,24px)',
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      borderRadius:'50%',flexShrink:0,
                       background:isToday?'var(--accent)':'transparent',
-                      color:isToday?'#000':dow===0?'#fb7185':dow===6?'#60a5fa':'var(--white)'}}>
-                      {d}
-                    </span>
-                    {(logs.length+schs.length)>0&&<span style={{fontSize:9,color:'var(--slate)'}}>{logs.length+schs.length}</span>}
+                      color:isToday?'#000':dow===0?'#fb7185':dow===6?'#60a5fa':'var(--white)'
+                    }}>{d}</span>
+                    {total>0&&<span style={{fontSize:8,color:'var(--slate)'}}>{total}</span>}
                   </div>
-                  {logs.slice(0,3).map(l=>(
-                    <div key={'l'+l.id} style={{fontSize:9,marginBottom:2,padding:'1px 4px',borderRadius:3,
-                      background:empColor(l.emp_id)+'33',borderLeft:`2px solid ${empColor(l.emp_id)}`,
-                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--white)',
-                      display:'flex',alignItems:'center',gap:2}}>
-                      {(l.emp_name||l.emp_id).split(/[\s　]/)[0]} {l.site_id}
-                      <LogBadges l={l} compact={true}/>
+                  {/* 実績バー（従業員ごと） */}
+                  {logs.map((l,li)=>{
+                    const ss=getStatuses(l);
+                    return <div key={'l'+l.id} style={{
+                      fontSize:'clamp(8px,1.8vw,10px)',
+                      marginBottom:1,padding:'1px 3px',borderRadius:3,
+                      background:empColor(l.emp_id)+'30',
+                      borderLeft:`3px solid ${empColor(l.emp_id)}`,
+                      display:'flex',alignItems:'center',gap:1,
+                      overflow:'hidden',maxWidth:'100%'
+                    }}>
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,color:'var(--white)',fontSize:'clamp(7px,1.6vw,9px)'}}>
+                        {(l.emp_name||l.emp_id).split(/[\s　]/)[0]}
+                      </span>
+                      {ss.map(k=><span key={k} style={{
+                        width:5,height:5,borderRadius:'50%',
+                        background:STATUS_ICONS[k].color,flexShrink:0
+                      }}></span>)}
+                    </div>;
+                  })}
+                  {/* 予定（点線） */}
+                  {schs.map(sc=>(
+                    <div key={'s'+sc.id} style={{
+                      fontSize:'clamp(7px,1.6vw,9px)',
+                      marginBottom:1,padding:'1px 3px',borderRadius:3,
+                      border:`1px dashed ${empColor(sc.emp_id)}66`,
+                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+                      color:empColor(sc.emp_id)+'99'
+                    }}>
+                      {(sc.emp_name||sc.emp_id).split(/[\s　]/)[0]}
                     </div>
                   ))}
-                  {schs.slice(0,2).map(sc=>(
-                    <div key={'s'+sc.id} style={{fontSize:9,marginBottom:2,padding:'1px 4px',borderRadius:3,
-                      border:`1px dashed ${empColor(sc.emp_id)}88`,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
-                      color:empColor(sc.emp_id)+'cc'}}>
-                      {(sc.emp_name||sc.emp_id).split(/[\s　]/)[0]} {sc.site_id}
-                    </div>
-                  ))}
-                  {logs.length+schs.length>4&&<div style={{fontSize:8,color:'var(--slate)',textAlign:'right'}}>+{logs.length+schs.length-4}</div>}
                 </div>
               );
             })}
@@ -1579,40 +1645,41 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
               const dObj=new Date(date+'T00:00:00');
               const dow=['日','月','火','水','木','金','土'][dObj.getDay()];
               const isToday=date===todayStr;
-              return (
-                <div key={date} style={{borderBottom:'1px solid var(--border)',padding:'10px 16px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <span style={{fontWeight:700,fontSize:14,color:isToday?'var(--accent)':'var(--white)'}}>{date.slice(5).replace('-','/')}</span>
-                    <span style={{fontSize:12,color:dObj.getDay()===0?'#fb7185':dObj.getDay()===6?'#60a5fa':'var(--mist)'}}>{dow}</span>
-                    {isToday&&<span style={{fontSize:9,background:'var(--accent)',color:'#000',borderRadius:3,padding:'0 4px',fontWeight:700}}>今日</span>}
-                    <span style={{fontSize:11,color:'var(--slate)',marginLeft:'auto'}}>{logs.length}件実績 {schs.length>0?`/ ${schs.length}件予定`:''}</span>
-                  </div>
-                  {logs.map(l=>(
-                    <div key={'l'+l.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',marginBottom:3,borderRadius:6,background:'rgba(255,255,255,0.03)'}}>
-                      <span style={{width:6,height:6,borderRadius:'50%',background:empColor(l.emp_id),flexShrink:0}}></span>
-                      <span style={{fontWeight:600,fontSize:12,minWidth:70,color:empColor(l.emp_id)}}>{l.emp_name||l.emp_id}</span>
-                      <span className="badge badge-orange" style={{fontSize:10}}>{l.site_id}</span>
-                      <span style={{fontSize:11,color:'var(--mist)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.site_name||''}</span>
-                      <LogBadges l={l}/>
-                    </div>
-                  ))}
-                  {schs.map(sc=>(
-                    <div key={'s'+sc.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',marginBottom:3,borderRadius:6,border:'1px dashed rgba(255,255,255,0.1)'}}>
-                      <span style={{width:6,height:6,borderRadius:'50%',border:`2px solid ${empColor(sc.emp_id)}`,flexShrink:0}}></span>
-                      <span style={{fontWeight:600,fontSize:12,minWidth:70,color:empColor(sc.emp_id)+'99'}}>{sc.emp_name||sc.emp_id}</span>
-                      <span className="badge badge-blue" style={{fontSize:10}}>{sc.site_id}</span>
-                      <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{sc.site_name||''}</span>
-                      {sc.memo&&<span style={{fontSize:10,color:'var(--slate)'}}>📝{sc.memo}</span>}
-                      {isMgr&&<button className="btn btn-danger btn-sm" style={{fontSize:10,padding:'1px 8px'}} onClick={()=>delSch(sc.id)}>削除</button>}
-                    </div>
-                  ))}
+              return <div key={date} style={{borderBottom:'1px solid var(--border)',padding:'10px 14px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                  <span style={{fontWeight:700,fontSize:14,
+                    color:isToday?'var(--accent)':'var(--white)',minWidth:48}}>{date.slice(5).replace('-','/')}</span>
+                  <span style={{fontSize:12,color:dObj.getDay()===0?'#fb7185':dObj.getDay()===6?'#60a5fa':'var(--mist)'}}>{dow}</span>
+                  {isToday&&<span style={{fontSize:9,background:'var(--accent)',color:'#000',borderRadius:3,padding:'0 4px',fontWeight:700}}>今日</span>}
+                  <span style={{fontSize:11,color:'var(--slate)',marginLeft:'auto'}}>{logs.length}件実績{schs.length>0?` / ${schs.length}件予定`:''}</span>
                 </div>
-              );
+                {logs.map(l=><div key={'l'+l.id} style={{
+                  display:'flex',alignItems:'center',gap:6,
+                  padding:'5px 8px',marginBottom:3,borderRadius:6,
+                  background:'rgba(255,255,255,0.03)',flexWrap:'wrap'}}>
+                  <span style={{width:8,height:8,borderRadius:'50%',background:empColor(l.emp_id),flexShrink:0}}></span>
+                  <span style={{fontWeight:600,fontSize:12,color:empColor(l.emp_id),minWidth:60}}>{l.emp_name||l.emp_id}</span>
+                  <span className="badge badge-orange" style={{fontSize:10}}>{l.site_id}</span>
+                  <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{l.site_name||''}</span>
+                  <StatusBadges l={l}/>
+                </div>)}
+                {schs.map(sc=><div key={'s'+sc.id} style={{
+                  display:'flex',alignItems:'center',gap:6,
+                  padding:'5px 8px',marginBottom:3,borderRadius:6,
+                  border:'1px dashed rgba(255,255,255,0.1)',flexWrap:'wrap'}}>
+                  <span style={{width:8,height:8,borderRadius:'50%',border:`2px solid ${empColor(sc.emp_id)}`,flexShrink:0}}></span>
+                  <span style={{fontWeight:600,fontSize:12,color:empColor(sc.emp_id)+'99',minWidth:60}}>{sc.emp_name||sc.emp_id}</span>
+                  <span className="badge badge-blue" style={{fontSize:10}}>{sc.site_id}</span>
+                  <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{sc.site_name||''}</span>
+                  {sc.memo&&<span style={{fontSize:10,color:'var(--slate)'}}>📝{sc.memo}</span>}
+                  {isMgr&&<button className="btn btn-danger btn-sm" style={{fontSize:10,padding:'1px 8px'}} onClick={()=>delSch(sc.id)}>削除</button>}
+                </div>)}
+              </div>;
             })}
         </div>}
 
-        {/* 日付詳細（月ビュー） */}
-        {selDate&&view==='month'&&<div className="card">
+        {/* 日付詳細パネル */}
+        {selDate&&view==='month'&&<div className="card" style={{marginTop:8}}>
           <div className="card-header">
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{selDate}</div>
@@ -1620,31 +1687,33 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
             </div>
             <button className="btn btn-ghost btn-sm" onClick={()=>setSelDate(null)}>✕</button>
           </div>
-          <div style={{padding:'10px 18px'}}>
+          <div style={{padding:'10px 14px'}}>
             {selLogs.length>0&&<>
               <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',marginBottom:8,letterSpacing:'1px'}}>▌ 実績（日報）</div>
-              {selLogs.map(l=>(
-                <div key={l.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',marginBottom:4,borderRadius:8,background:'rgba(255,255,255,0.03)',flexWrap:'wrap'}}>
-                  <span style={{width:10,height:10,borderRadius:'50%',background:empColor(l.emp_id),flexShrink:0}}></span>
-                  <span style={{fontWeight:600,fontSize:13,minWidth:80}}>{l.emp_name||l.emp_id}</span>
-                  <span className="badge badge-orange">{l.site_id}</span>
-                  <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{l.site_name||''}</span>
-                  <LogBadges l={l}/>
-                </div>
-              ))}
+              {selLogs.map(l=><div key={l.id} style={{
+                display:'flex',alignItems:'center',gap:8,
+                padding:'8px 10px',marginBottom:4,borderRadius:8,
+                background:'rgba(255,255,255,0.03)',flexWrap:'wrap'}}>
+                <span style={{width:10,height:10,borderRadius:'50%',background:empColor(l.emp_id),flexShrink:0}}></span>
+                <span style={{fontWeight:600,fontSize:13,minWidth:72}}>{l.emp_name||l.emp_id}</span>
+                <span className="badge badge-orange">{l.site_id}</span>
+                <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{l.site_name||''}</span>
+                <StatusBadges l={l}/>
+              </div>)}
             </>}
             {selSch.length>0&&<>
               <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',margin:'12px 0 8px',letterSpacing:'1px'}}>▌ 予定</div>
-              {selSch.map(sc=>(
-                <div key={sc.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',marginBottom:4,borderRadius:8,border:'1px dashed rgba(255,255,255,0.1)',flexWrap:'wrap'}}>
-                  <span style={{width:10,height:10,borderRadius:'50%',border:`2px solid ${empColor(sc.emp_id)}`,flexShrink:0}}></span>
-                  <span style={{fontWeight:600,fontSize:13,minWidth:80,color:empColor(sc.emp_id)}}>{sc.emp_name||sc.emp_id}</span>
-                  <span className="badge badge-blue">{sc.site_id}</span>
-                  <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{sc.site_name||''}</span>
-                  {sc.memo&&<span style={{fontSize:11,color:'var(--slate)'}}>📝 {sc.memo}</span>}
-                  {isMgr&&<button className="btn btn-danger btn-sm" style={{fontSize:10}} onClick={()=>delSch(sc.id)}>削除</button>}
-                </div>
-              ))}
+              {selSch.map(sc=><div key={sc.id} style={{
+                display:'flex',alignItems:'center',gap:8,
+                padding:'8px 10px',marginBottom:4,borderRadius:8,
+                border:'1px dashed rgba(255,255,255,0.1)',flexWrap:'wrap'}}>
+                <span style={{width:10,height:10,borderRadius:'50%',border:`2px solid ${empColor(sc.emp_id)}`,flexShrink:0}}></span>
+                <span style={{fontWeight:600,fontSize:13,minWidth:72,color:empColor(sc.emp_id)}}>{sc.emp_name||sc.emp_id}</span>
+                <span className="badge badge-blue">{sc.site_id}</span>
+                <span style={{fontSize:11,color:'var(--mist)',flex:1}}>{sc.site_name||''}</span>
+                {sc.memo&&<span style={{fontSize:11,color:'var(--slate)'}}>📝 {sc.memo}</span>}
+                {isMgr&&<button className="btn btn-danger btn-sm" style={{fontSize:10}} onClick={()=>delSch(sc.id)}>削除</button>}
+              </div>)}
             </>}
             {selLogs.length===0&&selSch.length===0&&<div style={{color:'var(--slate)',fontSize:13,textAlign:'center',padding:'12px 0'}}>この日の記録はありません</div>}
             {isMgr&&<>
@@ -1665,17 +1734,20 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
           </div>
         </div>}
 
-        {/* 凡例 */}
-        <div style={{display:'flex',gap:12,padding:'8px 4px',fontSize:11,color:'var(--mist)',flexWrap:'wrap'}}>
+        {/* 従業員凡例 */}
+        <div style={{display:'flex',gap:10,padding:'8px 2px',fontSize:11,flexWrap:'wrap',marginTop:4}}>
           {(data.employees||[]).map(e=>(
-            <span key={e.id} style={{display:'flex',alignItems:'center',gap:4,
+            <span key={e.id} onClick={()=>toggleEmp(e.id)} style={{
+              display:'flex',alignItems:'center',gap:4,cursor:'pointer',
               opacity:activeFilters&&!filterEmps.includes(e.id)?0.3:1,
-              cursor:'pointer'}}
-              onClick={()=>toggleEmp(e.id)}>
-              <span style={{width:8,height:8,borderRadius:'50%',background:empColor(e.id)}}></span>{e.name}
+              padding:'3px 8px',borderRadius:12,
+              background:filterEmps.includes(e.id)?empColor(e.id)+'22':'transparent',
+              border:`1px solid ${filterEmps.includes(e.id)?empColor(e.id):'transparent'}`
+            }}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:empColor(e.id)}}></span>
+              <span style={{color:empColor(e.id)}}>{e.name}</span>
             </span>
           ))}
-          <span style={{marginLeft:4,color:'var(--slate)'}}>● 実績　<span style={{opacity:0.6}}>○ 予定（点線）</span></span>
         </div>
       </div>
     </>
