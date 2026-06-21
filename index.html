@@ -1063,10 +1063,13 @@ function SalaryPage({data,user,isMgr,token,showToast}){
       total_drive_km+=dkm; total_move_km+=mkm;
       drive_pay+=Math.round(dkm*4);
       move_pay +=Math.round(mkm*14);
-    setDetail({emp:e, logs, days, base_pay, ot_h:Math.round(ot_h*10)/10, ot_pay,
+    });
+    const total_pay = base_pay+ot_pay+trip_pay+drive_pay+move_pay;
     setDetail({emp:e, logs, days, base_pay, ot_h:Math.round(ot_h*10)/10, ot_pay,
       trip_days, trip_pay, drive_pay, move_pay,
       total_drive_km:Math.round(total_drive_km), total_move_km:Math.round(total_move_km), total_pay});
+  };
+
   const printSlip = ()=>{
     if(!detail) return;
     const d=detail; const e=d.emp;
@@ -1109,8 +1112,7 @@ function SalaryPage({data,user,isMgr,token,showToast}){
     <div class="section">【勤怠】</div>
     <table>
       <tr><th>出勤日数</th><td>${d.days}日</td><th>時間外</th><td>${d.ot_h}h</td></tr>
-      <tr><th>出張日数</th><td>${d.trip_days}日</td><th>運転距離</th><td>${d.total_drive_km}km</td></tr>
-      <tr><th>移動距離</th><td colspan="3">${d.total_move_km}km</td></tr>
+      <tr><th>出張日数</th><td>${d.trip_days}日</td><th>運転距離</th><td>${d.total_drive_km}km / 移動${d.total_move_km}km</td></tr>
     </table>
     <div class="section">【支給】</div>
     <table>
@@ -1241,83 +1243,23 @@ function SalaryPage({data,user,isMgr,token,showToast}){
             <span style={{fontWeight:700,fontSize:15}}>総支給額</span>
             <span style={{fontFamily:'DM Mono,monospace',fontSize:20,fontWeight:700,color:'var(--green)'}}>{fmt(detail.total_pay)}</span>
           </div>
-          {/* 日報明細カレンダー */}
-          {detail.logs.length>0&&(()=>{
-            const logMap={};
-            detail.logs.forEach(l=>{ logMap[l.date]=l; });
-            const firstLog=detail.logs[0]?.date||'';
-            const lastLog=detail.logs[detail.logs.length-1]?.date||'';
-            if(!firstLog) return null;
-            const sy=parseInt(firstLog.slice(0,4)), sm=parseInt(firstLog.slice(5,7))-1;
-            const ey=parseInt(lastLog.slice(0,4)),  em=parseInt(lastLog.slice(5,7))-1;
-            const months=[];
-            let cy=sy,cm=sm;
-            while(cy<ey||(cy===ey&&cm<=em)){
-              months.push({y:cy,m:cm});
-              cm++; if(cm>11){cm=0;cy++;}
-            }
-            const ST_COLOR={trip:'#f6a623',ot:'#c084fc',drive_p:'#60a5fa',drive_r:'#3b82f6',move_p:'#4ade80',move_r:'#22c55e'};
-            return <>
-              <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',margin:'14px 0 8px'}}>日報明細カレンダー</div>
-              {months.map(({y,m})=>{
-                const ymStr=`${y}-${String(m+1).padStart(2,'0')}`;
-                const first=new Date(y,m,1);
-                const days=new Date(y,m+1,0).getDate();
-                const cells=Array(first.getDay()).fill(null);
-                for(let d=1;d<=days;d++) cells.push(d);
-                while(cells.length%7!==0) cells.push(null);
-                return <div key={ymStr} style={{marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:'var(--mist)',marginBottom:4}}>{y}年{m+1}月</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
-                    {['日','月','火','水','木','金','土'].map((d,i)=>(
-                      <div key={d} style={{textAlign:'center',fontSize:9,color:i===0?'#fb7185':i===6?'#60a5fa':'var(--slate)',paddingBottom:2}}>{d}</div>
-                    ))}
-                    {cells.map((d,i)=>{
-                      if(!d) return <div key={i}></div>;
-                      const ds=`${ymStr}-${String(d).padStart(2,'0')}`;
-                      const l=logMap[ds];
-                      const dow=i%7;
-                      if(!l) return <div key={i} style={{
-                        minHeight:32,borderRadius:4,
-                        background:'rgba(255,255,255,0.02)',
-                        display:'flex',alignItems:'flex-start',
-                        padding:'2px',
-                      }}>
-                        <span style={{fontSize:9,color:dow===0?'#fb718555':dow===6?'#60a5fa55':'var(--slate)',padding:'1px 2px'}}>{d}</span>
-                      </div>;
-                      const tags=[];
-                      if(l.is_trip) tags.push('trip');
-                      if((l.overtime_h||0)>0) tags.push('ot');
-                      if(l.drive_type==='片道') tags.push('drive_p');
-                      if(l.drive_type==='往復') tags.push('drive_r');
-                      if(l.move_type==='片道') tags.push('move_p');
-                      if(l.move_type==='往復') tags.push('move_r');
-                      return <div key={i} style={{
-                        minHeight:36,borderRadius:4,padding:'2px 3px',
-                        background:'rgba(246,166,35,0.12)',
-                        border:'1px solid rgba(246,166,35,0.4)',
-                      }}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <span style={{fontSize:9,fontWeight:700,color:'var(--accent)'}}>{d}</span>
-                          <span style={{fontSize:8,color:'var(--mist)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'60%'}}>{l.site_name||l.site_id||''}</span>
-                        </div>
-                        {tags.length>0&&<div style={{display:'flex',gap:1,flexWrap:'wrap',marginTop:1}}>
-                          {tags.map(t=><span key={t} style={{width:5,height:5,borderRadius:'50%',background:ST_COLOR[t]}}></span>)}
-                        </div>}
-                      </div>;
-                    })}
-                  </div>
-                </div>;
-              })}
-              <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'var(--mist)',marginTop:4}}>
-                {[['trip','#f6a623','✈出張'],['ot','#c084fc','⏱残業'],['drive_p','#60a5fa','🚗運転片'],['drive_r','#3b82f6','🚗運転往'],['move_p','#4ade80','🚶移動片'],['move_r','#22c55e','🚶移動往']].map(([k,col,lbl])=>(
-                  <span key={k} style={{display:'flex',alignItems:'center',gap:3}}>
-                    <span style={{width:7,height:7,borderRadius:'50%',background:col}}></span>{lbl}
-                  </span>
-                ))}
-              </div>
-            </>;
-          })()}
+          {/* 日報一覧 */}
+          {detail.logs.length>0&&<>
+            <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',margin:'14px 0 6px'}}>日報明細</div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>日付</th><th>現場</th><th>残業</th><th>運転</th><th>出張</th></tr></thead>
+              <tbody>{detail.logs.map(l=>{
+                const akm=l.drive_type==='往復'?(l.drive_km||0)*2:l.drive_type==='片道'?(l.drive_km||0):0;
+                return <tr key={l.id}>
+                  <td className="mono">{l.date}</td>
+                  <td style={{fontSize:11}}>{l.site_name||l.site_id}</td>
+                  <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
+                  <td style={{fontSize:11,color:'var(--blue)'}}>{akm>0?`${l.drive_type} ${akm}km`:'—'}</td>
+                  <td>{l.is_trip?<span className="badge badge-orange" style={{fontSize:9}}>出張</span>:'—'}</td>
+                </tr>;
+              })}</tbody>
+            </table></div>
+          </>}
         </div>
       </div>}
     </>
@@ -1673,7 +1615,7 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
                       overflow:'hidden',maxWidth:'100%'
                     }}>
                       <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,color:'var(--white)',fontSize:'clamp(7px,1.6vw,9px)'}}>
-                        {(l.emp_name||l.emp_id).split(/[\s　]/)[0]}{l.site_name?' '+l.site_name.slice(0,4):''}
+                        {(l.emp_name||l.emp_id).split(/[\s　]/)[0]}{l.site_name?' '+l.site_name.slice(0,5):''}
                       </span>
                       {ss.map(k=><span key={k} style={{
                         width:5,height:5,borderRadius:'50%',
