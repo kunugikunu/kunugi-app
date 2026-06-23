@@ -1120,21 +1120,28 @@ function SalaryPage({data,user,isMgr,token,showToast}){
       : `?emp_id=${empId}&year=${year}`;
     const res = await api.get(`/salary_detail${qs}`,token);
     if(res.error){showToast(res.error,'error');return;}
-    // クライアントで給与計算
+    // クライアントで給与計算（work_type対応）
     const e = res.emp;
     const logs = res.logs;
-    const days = logs.length;
-    const base_pay  = days * e.daily_wage;
-    const ot_h = logs.reduce((s,l)=>s+(l.overtime_h||0),0);
-    const ot_pay = Math.round(ot_h*2100);
-    const trip_days = logs.filter(l=>l.is_trip).length;
-    const trip_pay  = trip_days * (e.trip_allowance||0);
+    // 人工数：通常=1, 半日=0.5, 請求のみ=0
+    const days = Math.round(logs.reduce((s,l)=>{
+      const wt=l.work_type||'通常';
+      return s+(wt==='半日'?0.5:wt==='請求のみ'?0:1);
+    },0)*10)/10;
+    let base_pay=0,ot_h=0,ot_pay=0,trip_days=0,trip_pay=0;
     let drive_pay=0,move_pay=0,total_drive_km=0,total_move_km=0;
     logs.forEach(l=>{
+      const wt=l.work_type||'通常';
       const km=l.drive_km||0;
       const dkm=(l.drive_type==='往復'?km*2:l.drive_type==='片道'?km:0);
       const mkm=(l.move_type==='往復'?km*2:l.move_type==='片道'?km:0);
       total_drive_km+=dkm; total_move_km+=mkm;
+      if(wt==='請求のみ') return; // 給与なし・手当なし
+      if(wt==='半日') base_pay+=Math.floor(e.daily_wage/2);
+      else base_pay+=e.daily_wage;
+      const oth=l.overtime_h||0;
+      ot_h+=oth; ot_pay+=Math.round(oth*2100);
+      if(l.is_trip){trip_days++;trip_pay+=(e.trip_allowance||0);}
       drive_pay+=Math.round(dkm*4);
       move_pay +=Math.round(mkm*14);
     });
