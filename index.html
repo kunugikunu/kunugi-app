@@ -992,13 +992,8 @@ function SitesPage({data,token,reload,showToast}){
                       if(!dLogs.length) return <div key={ci} style={{height:30,borderRadius:4,background:'rgba(255,255,255,0.02)',display:'flex',alignItems:'center',justifyContent:'center'}}>
                         <span style={{fontSize:10,color:dow===0?'#fb718540':dow===6?'#60a5fa40':'rgba(255,255,255,0.12)'}}>{d}</span>
                       </div>;
-                      const hasHalf2=dLogs.some(l=>(l.work_type||'通常')==='半日');
-                      const hasBO2=dLogs.some(l=>(l.work_type||'通常')==='請求のみ');
-                      const cBg=hasBO2?'rgba(167,139,250,0.2)':hasHalf2?'rgba(96,165,250,0.2)':'rgba(246,166,35,0.18)';
-                      const cBd=hasBO2?'rgba(167,139,250,0.5)':hasHalf2?'rgba(96,165,250,0.5)':'rgba(246,166,35,0.5)';
-                      const cTx=hasBO2?'#a78bfa':hasHalf2?'#60a5fa':'var(--accent)';
-                      return <div key={ci} style={{height:30,borderRadius:4,padding:'2px',background:cBg,border:`1px solid ${cBd}`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,cursor:'default'}} title={dLogs.map(l=>`${l.emp_name||l.emp_id}(${l.work_type||'通常'})`).join(', ')}>
-                        <span style={{fontSize:10,fontWeight:700,color:cTx}}>{d}</span>
+                      return <div key={ci} style={{height:30,borderRadius:4,padding:'2px',background:'rgba(246,166,35,0.18)',border:'1px solid rgba(246,166,35,0.5)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,cursor:'default'}} title={dLogs.map(l=>l.emp_name||l.emp_id).join(', ')}>
+                        <span style={{fontSize:10,fontWeight:700,color:'var(--accent)'}}>{d}</span>
                         <span style={{fontSize:8,color:'var(--mist)'}}>{dLogs.length}人</span>
                       </div>;
                     })}
@@ -1125,34 +1120,26 @@ function SalaryPage({data,user,isMgr,token,showToast}){
       : `?emp_id=${empId}&year=${year}`;
     const res = await api.get(`/salary_detail${qs}`,token);
     if(res.error){showToast(res.error,'error');return;}
-    // クライアントで給与計算（work_type対応）
+    // クライアントで給与計算
     const e = res.emp;
     const logs = res.logs;
-    // 人工数：半日=0.5、通常/請求のみ=1.0
-    const days = logs.reduce((s,l)=>{
-      const wt=l.work_type||'通常';
-      return s+(wt==='半日'?0.5:1.0);
-    },0);
-    // 基本給：通常=日給、半日=日給/2、請求のみ=0
-    let base_pay=0, ot_h=0, ot_pay=0, trip_days=0, trip_pay=0;
-    let drive_pay=0, move_pay=0, total_drive_km=0, total_move_km=0;
+    const days = logs.length;
+    const base_pay  = days * e.daily_wage;
+    const ot_h = logs.reduce((s,l)=>s+(l.overtime_h||0),0);
+    const ot_pay = Math.round(ot_h*2100);
+    const trip_days = logs.filter(l=>l.is_trip).length;
+    const trip_pay  = trip_days * (e.trip_allowance||0);
+    let drive_pay=0,move_pay=0,total_drive_km=0,total_move_km=0;
     logs.forEach(l=>{
-      const wt=l.work_type||'通常';
       const km=l.drive_km||0;
       const dkm=(l.drive_type==='往復'?km*2:l.drive_type==='片道'?km:0);
       const mkm=(l.move_type==='往復'?km*2:l.move_type==='片道'?km:0);
       total_drive_km+=dkm; total_move_km+=mkm;
-      if(wt==='請求のみ') return; // 給与なし
-      if(wt==='半日') base_pay+=Math.floor(e.daily_wage/2);
-      else base_pay+=e.daily_wage;
-      const oth=l.overtime_h||0;
-      ot_h+=oth; ot_pay+=Math.round(oth*2100);
-      if(l.is_trip){ trip_days++; trip_pay+=(e.trip_allowance||0); }
       drive_pay+=Math.round(dkm*4);
       move_pay +=Math.round(mkm*14);
     });
     const total_pay = base_pay+ot_pay+trip_pay+drive_pay+move_pay;
-    setDetail({emp:e, logs, days:Math.round(days*10)/10, base_pay, ot_h:Math.round(ot_h*10)/10, ot_pay,
+    setDetail({emp:e, logs, days, base_pay, ot_h:Math.round(ot_h*10)/10, ot_pay,
       trip_days, trip_pay, drive_pay, move_pay,
       total_drive_km:Math.round(total_drive_km), total_move_km:Math.round(total_move_km), total_pay});
   };
@@ -1260,7 +1247,7 @@ function SalaryPage({data,user,isMgr,token,showToast}){
                 <div>
                   <div style={{fontWeight:700,fontSize:14}}>{e.name}</div>
                   <div style={{fontSize:10,color:'var(--mist)'}}>
-                    {e.id} / {periodLabel} / {e.days}人工出勤
+                    {e.id} / {periodLabel} / {e.days}日出勤
                     {e.daily_wage>0?` / 日給${fmt(e.daily_wage)}`:''}
                   </div>
                 </div>
@@ -1274,7 +1261,7 @@ function SalaryPage({data,user,isMgr,token,showToast}){
             </div>
             {e.daily_wage>0&&<div style={{padding:'10px 18px'}}>
               <div className="site-nums" style={{gridTemplateColumns:'repeat(5,1fr)'}}>
-                <div><div className="site-num-label">出勤日数</div><div className="site-num-val" style={{color:'var(--white)'}}>{e.days}日</div></div>
+                <div><div className="site-num-label">出勤人工数</div><div className="site-num-val" style={{color:'var(--white)'}}>{e.days}人工</div></div>
                 <div><div className="site-num-label">基本給</div><div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(e.base_pay)}</div></div>
                 <div><div className="site-num-label">残業手当<br/><span style={{fontSize:9,color:'var(--slate)'}}>{e.ot_hours}h</span></div><div className="site-num-val" style={{color:'var(--purple)'}}>{fmt(e.ot_pay)}</div></div>
                 <div><div className="site-num-label">出張手当<br/><span style={{fontSize:9,color:'var(--slate)'}}>{e.trip_days}日</span></div><div className="site-num-val" style={{color:'var(--accent)'}}>{fmt(e.trip_pay)}</div></div>
@@ -1303,7 +1290,7 @@ function SalaryPage({data,user,isMgr,token,showToast}){
           {/* 勤怠 */}
           <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',marginBottom:6}}>勤怠</div>
           <div className="site-nums" style={{gridTemplateColumns:'repeat(4,1fr)',marginBottom:14}}>
-            <div><div className="site-num-label">出勤日数</div><div className="site-num-val">{detail.days}日</div></div>
+            <div><div className="site-num-label">出勤人工数</div><div className="site-num-val">{detail.days}人工</div></div>
             <div><div className="site-num-label">時間外</div><div className="site-num-val" style={{color:'var(--purple)'}}>{detail.ot_h}h</div></div>
             <div><div className="site-num-label">出張</div><div className="site-num-val" style={{color:'var(--accent)'}}>{detail.trip_days}日</div></div>
             <div><div className="site-num-label">運転距離</div><div className="site-num-val" style={{color:'#60a5fa'}}>{detail.total_drive_km}km</div></div>
@@ -1312,7 +1299,7 @@ function SalaryPage({data,user,isMgr,token,showToast}){
           {/* 支給 */}
           <div style={{fontSize:11,fontWeight:700,color:'var(--mist)',letterSpacing:'1px',marginBottom:6}}>支給内訳</div>
           {[
-            ['基本給', `${detail.days}日 × ${fmt(detail.emp.daily_wage)}`, detail.base_pay, 'var(--accent)'],
+            ['基本給', `${detail.days}人工 × ${fmt(detail.emp.daily_wage)}`, detail.base_pay, 'var(--accent)'],
             ['時間外手当', `${detail.ot_h}h × ¥2,100`, detail.ot_pay, 'var(--purple)'],
             ['出張手当', `${detail.trip_days}日 × ${fmt(detail.emp.trip_allowance)}`, detail.trip_pay, 'var(--orange, #f6a623)'],
             ['移動手当', `${detail.total_move_km}km × ¥14`, detail.move_pay, '#4ade80'],
@@ -1750,16 +1737,21 @@ function CalendarPage({data,user,token,isMgr,reload,showToast}){
                   {/* 実績バー（従業員ごと） */}
                   {logs.map((l,li)=>{
                     const ss=getStatuses(l);
+                    const _wt=l.work_type||'通常';
+                    const _bg=_wt==='請求のみ'?empColor(l.emp_id)+'15':_wt==='半日'?empColor(l.emp_id)+'22':empColor(l.emp_id)+'30';
+                    const _bl=_wt==='請求のみ'?`2px dashed ${empColor(l.emp_id)}`:_wt==='半日'?`2px dotted ${empColor(l.emp_id)}`:`3px solid ${empColor(l.emp_id)}`;
                     return <div key={'l'+l.id} style={{
                       fontSize:'clamp(8px,1.8vw,10px)',
                       marginBottom:1,padding:'1px 3px',borderRadius:3,
-                      background:empColor(l.emp_id)+'30',
-                      borderLeft:`3px solid ${empColor(l.emp_id)}`,
+                      background:_bg,
+                      borderLeft:_bl,
                       display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,
                       overflow:'hidden',maxWidth:'100%'
                     }}>
                       <span style={{display:'flex',alignItems:'center',gap:2,width:'100%',overflow:'hidden'}}>
                         <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--white)',fontSize:'clamp(7px,1.6vw,10px)'}}>{(l.emp_name||l.emp_id).split(/[\s　]/)[0]}</span>
+                        {_wt==='半日'&&<span style={{fontSize:7,background:'#60a5fa33',color:'#60a5fa',borderRadius:2,padding:'0 2px',flexShrink:0}}>半</span>}
+                        {_wt==='請求のみ'&&<span style={{fontSize:7,background:'#a78bfa33',color:'#a78bfa',borderRadius:2,padding:'0 2px',flexShrink:0}}>請</span>}
                         {ss.map(k=><span key={k} style={{width:5,height:5,borderRadius:'50%',background:STATUS_ICONS[k].color,flexShrink:0}}></span>)}
                       </span>
                       {l.site_name&&<span style={{display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'#cbd5e1',fontSize:'clamp(6px,1.3vw,8px)',opacity:0.8}}>{l.site_name.slice(0,8)}</span>}
