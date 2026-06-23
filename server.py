@@ -181,14 +181,18 @@ def row(r):  return dict(r) if r else None
 
 def calc_pay(log, daily_wage, trip_allowance):
     """1日報の給与計算
-    work_type: 通常/半日（日給1/2）/請求のみ（給与0・人工1.0カウント）
+    通常: 日給100% / 半日: 日給50% / 請求のみ: 給与0（人工は現場集計にカウント）
     """
     wt  = log.get("work_type") or "通常"
-    km = log.get("drive_km") or 0
-    dt = log.get("drive_type") or "なし"
+    km  = log.get("drive_km") or 0
+    dt  = log.get("drive_type") or "なし"
+    mt  = log.get("move_type") or "なし"
     driven_km = km * 2 if dt == "往復" else km if dt == "片道" else 0
-    mt = log.get("move_type") or ("片道" if log.get("is_move") else "なし")
     move_km   = km * 2 if mt == "往復" else km if mt == "片道" else 0
+    # 請求のみ: 給与なし（運転・移動手当も発生しない）
+    if wt == "請求のみ":
+        return {"base":0,"ot_pay":0,"drive_pay":0,"move_pay":0,"trip_pay":0,
+                "actual_km":driven_km,"move_km":move_km,"total":0}
     ot_pay    = round((log.get("overtime_h") or 0) * OT_HOURLY)
     drive_pay = round(driven_km * DRIVE_PER_KM)
     move_pay  = round(move_km   * MOVE_PER_KM)
@@ -214,7 +218,13 @@ def calc_labor_cost(logs_with_wage):
 
 def build_salary(emp, logs):
     """給与サマリー構築（work_type対応）"""
-    days = len(logs)
+    # 給与発生日数: 通常=1.0, 半日=0.5, 請求のみ=0
+    days = round(sum(
+        0.5 if (l.get("work_type") or "通常")=="半日"
+        else 0.0 if (l.get("work_type") or "通常")=="請求のみ"
+        else 1.0
+        for l in logs
+    ), 1)
     base_pay = ot_pay = trip_pay = drive_pay = move_pay = 0
     ot_h = trip_days = 0
     for l in logs:
