@@ -555,7 +555,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
   const empOpts = isMgr ? data.employees : [{id:user.empId,name:user.name}];
   const [form,setForm] = useState({
     date:today(), empId:user.empId, siteId:data.sites[0]?.id||'',
-    overtime_h:'', drive_type:'なし', move_type:'なし', is_trip:false, memo:''
+    overtime_h:'', work_type:'通常', drive_type:'なし', move_type:'なし', is_trip:false, memo:''
   });
   const [saving,setSaving] = useState(false);
 
@@ -589,7 +589,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
     setSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('日報を保存しました ✓');reload();
-    setForm(f=>({...f,overtime_h:'',drive_type:'なし',move_type:'なし',is_trip:false,memo:''}));
+    setForm(f=>({...f,overtime_h:'',work_type:'通常',drive_type:'なし',move_type:'なし',is_trip:false,memo:''}));
   };
   const [logSearch,setLogSearch]=useState('');
   const [logSort,setLogSort]=useState('date_desc');
@@ -622,10 +622,10 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
   const del=async(id)=>{await api.del(`/logs/${id}`,token);showToast('削除しました');reload();};
   const [editLog,setEditLog]=useState(null);
   const [editSaving,setEditSaving]=useState(false);
-  const openEdit=(l)=>setEditLog({id:l.id,date:l.date,empId:l.emp_id,siteId:l.site_id,overtime_h:l.overtime_h||0,drive_type:l.drive_type||'なし',is_trip:!!l.is_trip,move_type:l.move_type||'なし',memo:l.memo||''});
+  const openEdit=(l)=>setEditLog({id:l.id,date:l.date,empId:l.emp_id,siteId:l.site_id,overtime_h:l.overtime_h||0,work_type:l.work_type||'通常',drive_type:l.drive_type||'なし',is_trip:!!l.is_trip,move_type:l.move_type||'なし',memo:l.memo||''});
   const saveEdit=async()=>{
     setEditSaving(true);
-    const res=await api.put(`/logs/${editLog.id}`,{date:editLog.date,emp_id:editLog.empId,site_id:editLog.siteId,overtime_h:parseFloat(editLog.overtime_h)||0,drive_type:editLog.drive_type,is_trip:editLog.is_trip?1:0,move_type:editLog.move_type||'なし',memo:editLog.memo},token);
+    const res=await api.put(`/logs/${editLog.id}`,{date:editLog.date,emp_id:editLog.empId,site_id:editLog.siteId,overtime_h:parseFloat(editLog.overtime_h)||0,work_type:editLog.work_type||'通常',drive_type:editLog.drive_type,is_trip:editLog.is_trip?1:0,move_type:editLog.move_type||'なし',memo:editLog.memo},token);
     setEditSaving(false);
     if(res.error){showToast(res.error,'error');return;}
     showToast('日報を修正しました ✓');setEditLog(null);reload();
@@ -666,6 +666,14 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
                 <input type="text" className="form-input" placeholder="特記事項など" value={form.memo} onChange={e=>set('memo',e.target.value)}/>
               </div>
             </> : <>
+              <div className="form-group">
+                <label className="form-label">勤務区分</label>
+                <select className="form-input" value={form.work_type||'通常'} onChange={e=>set('work_type',e.target.value)}>
+                  <option value="通常">通常（日給100%・人工1.0）</option>
+                  <option value="半日">半日（日給50%・人工1.0）</option>
+                  <option value="請求のみ">請求のみ（給与なし・人工1.0）</option>
+                </select>
+              </div>
               <div className="form-group">
                 <label className="form-label">残業時間（h）</label>
                 <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
@@ -747,7 +755,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             : filteredLogs.length===0
               ? <div className="empty"><div className="empty-icon">🔍</div>該当する日報がありません</div>
               : <div className="table-wrap"><table>
-              <thead><tr><th>日付</th><th>氏名</th><th>現場ID</th><th>現場名</th><th>残業</th><th>運転</th><th>移動</th><th>出張</th><th>メモ</th><th></th></tr></thead>
+              <thead><tr><th>日付</th><th>氏名</th><th>現場ID</th><th>現場名</th><th>区分</th><th>残業</th><th>運転</th><th>移動</th><th>出張</th><th>メモ</th><th></th></tr></thead>
               <tbody>{filteredLogs.map(l=>{
                 const dkm = l.drive_type==='往復'?(l.drive_km||0)*2 : l.drive_type==='片道'?(l.drive_km||0):0;
                 const mt = l.move_type||'なし';
@@ -757,6 +765,7 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
                   <td style={{fontWeight:500}}>{l.emp_name||l.emp_id}</td>
                   <td><span className="badge badge-orange">{l.site_id}</span></td>
                   <td style={{fontSize:11,color:'var(--mist)'}}>{l.site_name||'—'}</td>
+                  <td>{l.work_type&&l.work_type!=='通常'?<span className={`badge badge-${l.work_type==='半日'?'blue':'purple'}`} style={{fontSize:9}}>{l.work_type}</span>:'—'}</td>
                   <td className="mono" style={{color:l.overtime_h>0?'var(--purple)':'var(--slate)'}}>{l.overtime_h>0?l.overtime_h+'h':'—'}</td>
                   <td style={{fontSize:11,color:'var(--blue)'}}>{dkm>0?`${l.drive_type} ${dkm}km`:'—'}</td>
                   <td style={{fontSize:11,color:'var(--green)'}}>{mkm>0?`${mt} ${mkm}km`:'—'}</td>
@@ -788,6 +797,13 @@ function DailyInput({data,user,token,isMgr,reload,showToast}){
             <div className="form-group"><label className="form-label">残業時間（h）</label>
               <input type="number" className="form-input" placeholder="0" min="0" step="0.5"
                 value={editLog.overtime_h} onChange={e=>setEditLog(f=>({...f,overtime_h:e.target.value}))}/>
+            </div>
+            <div className="form-group"><label className="form-label">勤務区分</label>
+              <select className="form-input" value={editLog.work_type||'通常'} onChange={e=>setEditLog(f=>({...f,work_type:e.target.value}))}>
+                <option value="通常">通常</option>
+                <option value="半日">半日（日給50%）</option>
+                <option value="請求のみ">請求のみ（給与なし）</option>
+              </select>
             </div>
             <div className="form-group"><label className="form-label">運転</label>
               <select className="form-input" value={editLog.drive_type} onChange={e=>setEditLog(f=>({...f,drive_type:e.target.value}))}>
@@ -824,6 +840,9 @@ function SitesPage({data,token,reload,showToast}){
   const [extraForm,setExtraForm]=useState(null);
   const [ef,setEf]=useState({date:today(),description:'',amount:''});
   const [saving,setSaving]=useState(false);
+  const now2=new Date();
+  const [calMonth,setCalMonth]=useState(`${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`);
+  const [detailSite,setDetailSite]=useState(null); // カレンダー詳細表示
 
   const saveEdit=async()=>{
     if(!editSite.name){showToast('現場名を入力してください','error');return;}
@@ -853,7 +872,14 @@ function SitesPage({data,token,reload,showToast}){
 
   return (
     <>
-      <div className="topbar"><div><div className="page-title">現場別集計</div><div className="page-sub">請負・応援 対応 / 人工は従業員+代表+外注の合計</div></div></div>
+      <div className="topbar">
+        <div><div className="page-title">現場別集計</div><div className="page-sub">請負・応援 対応 / 人工は従業員+代表+外注の合計</div></div>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <label style={{fontSize:11,color:'var(--mist)'}}>詳細月</label>
+          <input type="month" className="form-input" style={{width:'auto',padding:'4px 8px',fontSize:12}}
+            value={calMonth} onChange={e=>setCalMonth(e.target.value)}/>
+        </div>
+      </div>
       <div className="content">
         {data.summary.length===0?<div className="card"><div className="empty"><div className="empty-icon">🏗</div>現場がありません</div></div>
         :data.summary.map(s=>{
@@ -926,6 +952,53 @@ function SitesPage({data,token,reload,showToast}){
                   </div>
                 </div>)}
               </div>}
+              {/* 月別詳細カレンダー */}
+              {detailSite===s.id&&(()=>{
+                const ym=calMonth;
+                const y=parseInt(ym.slice(0,4)), mo=parseInt(ym.slice(5,7))-1;
+                const mLogs=(data.logs||[]).filter(l=>l.site_id===s.id&&(l.date||'').startsWith(ym));
+                const first=new Date(y,mo,1);
+                const days=new Date(y,mo+1,0).getDate();
+                const cells=Array(first.getDay()).fill(null);
+                for(let d=1;d<=days;d++) cells.push(d);
+                while(cells.length%7!==0) cells.push(null);
+                const logByDate={};
+                mLogs.forEach(l=>{if(!logByDate[l.date])logByDate[l.date]=[];logByDate[l.date].push(l);});
+                const byEmp={};
+                mLogs.forEach(l=>{if(!byEmp[l.emp_id])byEmp[l.emp_id]={name:l.emp_name||l.emp_id,cnt:0};byEmp[l.emp_id].cnt++;});
+                return <div style={{marginTop:10,padding:'12px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid var(--border)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--white)'}}>{ym.slice(0,4)}年{parseInt(ym.slice(5,7))}月 出勤実績</span>
+                    <span style={{fontSize:13,fontFamily:'DM Mono,monospace',color:'var(--accent)',fontWeight:700}}>{mLogs.length}人工</span>
+                  </div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
+                    {Object.values(byEmp).map(e=>(
+                      <span key={e.name} style={{fontSize:11,padding:'2px 8px',borderRadius:12,background:'rgba(246,166,35,0.15)',color:'var(--accent)'}}>
+                        {e.name.split(' ')[0]} {e.cnt}日
+                      </span>
+                    ))}
+                    {mLogs.length===0&&<span style={{fontSize:11,color:'var(--slate)'}}>この月の実績はありません</span>}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+                    {['日','月','火','水','木','金','土'].map((d,i)=>(
+                      <div key={d} style={{textAlign:'center',fontSize:9,color:i===0?'#fb7185':i===6?'#60a5fa':'var(--slate)',paddingBottom:2}}>{d}</div>
+                    ))}
+                    {cells.map((d,ci)=>{
+                      if(!d) return <div key={ci}></div>;
+                      const ds=`${ym}-${String(d).padStart(2,'0')}`;
+                      const dLogs=logByDate[ds]||[];
+                      const dow=ci%7;
+                      if(!dLogs.length) return <div key={ci} style={{height:30,borderRadius:4,background:'rgba(255,255,255,0.02)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <span style={{fontSize:10,color:dow===0?'#fb718540':dow===6?'#60a5fa40':'rgba(255,255,255,0.12)'}}>{d}</span>
+                      </div>;
+                      return <div key={ci} style={{height:30,borderRadius:4,padding:'2px',background:'rgba(246,166,35,0.18)',border:'1px solid rgba(246,166,35,0.5)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,cursor:'default'}} title={dLogs.map(l=>l.emp_name||l.emp_id).join(', ')}>
+                        <span style={{fontSize:10,fontWeight:700,color:'var(--accent)'}}>{d}</span>
+                        <span style={{fontSize:8,color:'var(--mist)'}}>{dLogs.length}人</span>
+                      </div>;
+                    })}
+                  </div>
+                </div>;
+              })()}
             </div>
           </div>;
         })}
