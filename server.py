@@ -203,8 +203,10 @@ def calc_pay(log, daily_wage, trip_allowance):
     }
 
 def calc_labor_cost(logs_with_wage):
-    labor = 0; mandays = len(logs_with_wage)
+    labor = 0; mandays = 0
     for l in logs_with_wage:
+        wt = l.get("work_type") or "通常"
+        mandays += 0.5 if wt == "半日" else 1.0
         if (l.get("daily_wage") or 0) > 0:
             p = calc_pay(l, l["daily_wage"], l.get("trip_allowance", 0))
             labor += p["total"]
@@ -228,7 +230,7 @@ def build_salary(emp, logs):
     return {
         "id": emp["id"], "name": emp["name"], "role": emp.get("role","employee"),
         "daily_wage": emp["daily_wage"], "trip_allowance": emp.get("trip_allowance",0),
-        "days": days, "base_pay": base_pay,
+        "days": round(days, 1), "base_pay": base_pay,
         "ot_hours": round(ot_h, 1), "ot_pay": ot_pay,
         "trip_days": trip_days, "trip_pay": trip_pay,
         "drive_pay": drive_pay, "move_pay": move_pay,
