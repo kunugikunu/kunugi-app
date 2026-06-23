@@ -127,6 +127,7 @@ def init_db():
     if "drive_km"       not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN drive_km REAL DEFAULT 0")
     if "is_trip"        not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN is_trip INTEGER DEFAULT 0")
     if "is_move"        not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN is_move INTEGER DEFAULT 0")
+    if "work_type"      not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN work_type TEXT DEFAULT '通常'")
     if "move_type"      not in log_cols:  cur.execute("ALTER TABLE daily_logs ADD COLUMN move_type TEXT DEFAULT 'なし'")
     if "employee_site_km" not in tables:
         cur.execute("""CREATE TABLE employee_site_km (
@@ -180,9 +181,9 @@ def row(r):  return dict(r) if r else None
 
 def calc_pay(log, daily_wage, trip_allowance):
     """1日報の給与計算
-    運転（片道/往復）: 運転手当（4円/km）のみ
-    移動あり(is_move=1): 移動手当（14円/km）× 片道km
+    work_type: 通常/半日（日給1/2）/請求のみ（給与0・人工1.0カウント）
     """
+    wt  = log.get("work_type") or "通常"
     km = log.get("drive_km") or 0
     dt = log.get("drive_type") or "なし"
     driven_km = km * 2 if dt == "往復" else km if dt == "片道" else 0
@@ -192,7 +193,7 @@ def calc_pay(log, daily_wage, trip_allowance):
     drive_pay = round(driven_km * DRIVE_PER_KM)
     move_pay  = round(move_km   * MOVE_PER_KM)
     trip_pay  = trip_allowance if log.get("is_trip") else 0
-    base      = daily_wage if daily_wage > 0 else 0
+    base      = (daily_wage // 2) if wt == "半日" else (daily_wage if daily_wage > 0 else 0)
     return {
         "base": base, "ot_pay": ot_pay,
         "drive_pay": drive_pay, "move_pay": move_pay,
@@ -210,26 +211,23 @@ def calc_labor_cost(logs_with_wage):
     return labor, mandays
 
 def build_salary(emp, logs):
-    """給与サマリー構築"""
+    """給与サマリー構築（work_type対応）"""
     days = len(logs)
-    base_pay = days * emp["daily_wage"]
-    ot_h = sum(l.get("overtime_h") or 0 for l in logs)
-    ot_pay = round(ot_h * OT_HOURLY)
-    trip_days = sum(1 for l in logs if l.get("is_trip"))
-    trip_pay  = trip_days * emp["trip_allowance"]
-    drive_pay = move_pay = 0
+    base_pay = ot_pay = trip_pay = drive_pay = move_pay = 0
+    ot_h = trip_days = 0
     for l in logs:
-        km = l.get("drive_km") or 0
-        dt = l.get("drive_type") or "なし"
-        driven_km = km*2 if dt=="往復" else km if dt=="片道" else 0
-        mt2 = l.get("move_type") or ("片道" if l.get("is_move") else "なし")
-        move_km   = km*2 if mt2=="往復" else km if mt2=="片道" else 0
-        drive_pay += round(driven_km * DRIVE_PER_KM)
-        move_pay  += round(move_km   * MOVE_PER_KM)
+        p = calc_pay(l, emp["daily_wage"], emp.get("trip_allowance",0))
+        base_pay  += p["base"]
+        ot_pay    += p["ot_pay"]
+        trip_pay  += p["trip_pay"]
+        drive_pay += p["drive_pay"]
+        move_pay  += p["move_pay"]
+        ot_h      += (l.get("overtime_h") or 0)
+        if l.get("is_trip"): trip_days += 1
     total_pay = base_pay + ot_pay + trip_pay + drive_pay + move_pay
     return {
         "id": emp["id"], "name": emp["name"], "role": emp.get("role","employee"),
-        "daily_wage": emp["daily_wage"], "trip_allowance": emp["trip_allowance"],
+        "daily_wage": emp["daily_wage"], "trip_allowance": emp.get("trip_allowance",0),
         "days": days, "base_pay": base_pay,
         "ot_hours": round(ot_h, 1), "ot_pay": ot_pay,
         "trip_days": trip_days, "trip_pay": trip_pay,
@@ -517,13 +515,14 @@ class Handler(BaseHTTPRequestHandler):
                 if drive_km == 0:
                     r = con.execute("SELECT one_way_km FROM sites WHERE id=?", (b["siteId"],)).fetchone()
                     if r: drive_km = r["one_way_km"]
-                cur=con.execute("INSERT INTO daily_logs (date,emp_id,site_id,overtime_h,drive_type,drive_km,is_trip,move_type,memo) VALUES (?,?,?,?,?,?,?,?,?)",
+                cur=con.execute("INSERT INTO daily_logs (date,emp_id,site_id,overtime_h,drive_type,drive_km,is_trip,move_type,work_type,memo) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (b["date"],eid,b["siteId"],
                      float(b.get("overtime_h",0)),
                      b.get("drive_type","なし"),
                      drive_km,
                      1 if b.get("is_trip") else 0,
                      b.get("move_type","なし"),
+                     b.get("work_type","通常"),
                      b.get("memo","")))
                 con.commit()
                 self.send_json(row(con.execute("SELECT * FROM daily_logs WHERE id=?",(cur.lastrowid,)).fetchone()),201)
@@ -610,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 elif parts[1]=="logs":
                     fields=[]; vals=[]
-                    for k in ["date","emp_id","site_id","overtime_h","drive_type","is_trip","move_type","memo"]:
+                    for k in ["date","emp_id","site_id","overtime_h","drive_type","is_trip","move_type","work_type","memo"]:
                         if k in b:
                             fields.append(f"{k}=?")
                             vals.append(float(b[k]) if k=="overtime_h" else int(b[k]) if k=="is_trip" else b[k])
