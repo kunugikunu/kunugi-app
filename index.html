@@ -900,6 +900,7 @@ function SitesPage({data,token,reload,showToast}){
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
                 {!isOen&&<button className="btn btn-ghost btn-sm" onClick={()=>{setExtraForm(s.id);setEf({date:today(),description:'',amount:''});}}>＋追加工事</button>}
+                <button className="btn btn-ghost btn-sm" onClick={()=>setDetailSite(detailSite===s.id?null:s.id)} style={{color:detailSite===s.id?"var(--accent)":"inherit"}}>📅 {detailSite===s.id?"閉じる":"詳細"}</button>
                 <button className="btn btn-ghost btn-sm" onClick={()=>setEditSite({...s})}>編集</button>
               </div>
             </div>
